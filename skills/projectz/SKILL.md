@@ -84,6 +84,30 @@ projectz/
 
 ## File Formats
 
+### MAP.md Frontmatter Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `slug` | yes | URL-friendly project identifier |
+| `status` | yes | draft, active, review, done, archived |
+| `has_git` | no | true/false - is project under version control |
+| `repo` | no | Remote repository URL |
+| `tags` | no | List of tags for categorization |
+| `created` | yes | Creation date (YYYY-MM-DD) |
+| `updated` | yes | Last update date (YYYY-MM-DD) |
+
+### MAP.md Sections
+
+| Section | Purpose |
+|---------|---------|
+| **Repository** | Git status, remote URL, branch info |
+| **Files > Temporary** | Safe to delete: builds, caches, logs |
+| **Files > Private** | Don't share: .env, secrets, local configs |
+| **Files > Core** | Important: source, docs, tests |
+| **Quick Links** | Links to tasks/, notes/, howto/ |
+| **Recent Notes** | Latest notes with links |
+| **Related Documents** | Links to docs, guides, decisions |
+
 ### Project README.md (description only)
 
 ```markdown
@@ -105,6 +129,7 @@ See [MAP.md](./MAP.md) for status, tasks, and related documents.
 slug: my-project
 status: active
 repo: https://github.com/user/my-project
+has_git: true
 tags: [python, web]
 created: 2024-01-15
 updated: 2024-01-20
@@ -121,6 +146,31 @@ Current: **active**
 - [Tasks](./tasks/)
 - [Notes](./notes/)
 - [How-To Guides](./howto/)
+
+## Repository
+
+- **Git**: yes, initialized
+- **Remote**: https://github.com/user/my-project
+- **Default branch**: main
+
+## Files
+
+### Temporary (safe to delete)
+- `build/`, `dist/` - build outputs
+- `*.log` - log files
+- `.cache/`, `__pycache__/` - caches
+- `node_modules/` - dependencies (reinstallable)
+
+### Private (don't share publicly)
+- `.env`, `.env.local` - environment secrets
+- `config.local.yaml` - local overrides
+- `secrets/` - API keys, credentials
+- `*.pem`, `*.key` - certificates/keys
+
+### Core (important, back up)
+- `src/` - source code
+- `docs/` - documentation
+- `tests/` - test files
 
 ## Recent Notes
 
