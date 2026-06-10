@@ -1,0 +1,10 @@
+{
+  "name": "skill-vault",
+  "version": "0.1.0",
+  "description": "A collection of reusable Claude Code skills",
+  "author": "csabakecskemeti",
+  "repository": "https://github.com/csabakecskemeti/skill-vault",
+  "skills": [
+    "skills/projectz"
+  ]
+}

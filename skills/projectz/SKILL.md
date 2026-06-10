@@ -1,12 +1,14 @@
+---
+name: projectz
+description: Git-based markdown project tracker. Use when the user wants to track projects, manage tasks across computers, or asks about "projectz", "my projects", "project status", "add task", "sync projects".
+when_to_use: User mentions tracking projects, managing tasks, project status, syncing work across machines, or explicitly invokes /projectz
+argument-hint: "[command] [args]"
+arguments: command project title
+---
+
 # /projectz - Git-based Project Tracker
 
-A skill for managing personal projects across multiple computers using Git and Markdown.
-
-## Usage
-
-```
-/projectz [command] [args]
-```
+Manage personal projects across multiple computers using Git and Markdown.
 
 ## Commands
 
@@ -26,11 +28,7 @@ A skill for managing personal projects across multiple computers using Git and M
 
 ---
 
-## Skill Instructions
-
-When the user invokes `/projectz`, follow these instructions:
-
-### Configuration
+## Configuration
 
 The projectz system uses two locations:
 
@@ -43,14 +41,12 @@ computer_name: macbook-pro
 projectz_repo: ~/projectz  # local clone path
 ```
 
-### Repository Structure
-
-The projectz repo follows this structure:
+## Repository Structure
 
 ```
 projectz/
 ├── README.md              # Overview and links
-├── AGENTS.md              # Instructions for AI agents (this skill)
+├── AGENTS.md              # Instructions for AI agents
 ├── INDEX.md               # Auto-maintained project index
 ├── computers/             # Registered computers
 │   └── <computer-id>.md   # Computer info and its project paths
@@ -62,9 +58,9 @@ projectz/
             └── 002-<slug>.md
 ```
 
-### File Formats
+## File Formats
 
-#### Project README.md
+### Project README.md
 ```markdown
 ---
 name: My Project
@@ -86,7 +82,7 @@ Description of the project.
 - 2024-01-15: Initial setup
 ```
 
-#### Task file (tasks/001-setup.md)
+### Task file (tasks/001-setup.md)
 ```markdown
 ---
 id: "001"
@@ -107,7 +103,7 @@ Create the initial directory structure and configuration files.
 - [ ] Config files in place
 ```
 
-#### Computer file (computers/comp-abc123.md)
+### Computer file (computers/comp-abc123.md)
 ```markdown
 ---
 id: comp-abc123
@@ -124,14 +120,14 @@ registered: 2024-01-15
 | my-project | ~/code/my-project | 2024-01-20 |
 ```
 
-### Command Implementations
+## Command Implementations
 
-#### `/projectz` (no args) - Show Status
+### `/projectz` (no args) - Show Status
 1. Read `~/.projectz.yaml` to find repo location
 2. Read `INDEX.md` or scan `projects/` directory
 3. Display summary: project names, statuses, active task counts
 
-#### `/projectz init <repo-url>`
+### `/projectz init <repo-url>`
 1. Clone the repo to `~/projectz` (or ask user for location)
 2. Generate computer ID from hostname hash
 3. Create `~/.projectz.yaml` with config
@@ -139,44 +135,44 @@ registered: 2024-01-15
 5. Commit and push the computer registration
 6. Confirm setup complete
 
-#### `/projectz new <name>`
+### `/projectz new <name>`
 1. Generate slug from name (lowercase, hyphens)
 2. Create `projects/<slug>/README.md` with template
 3. Create `projects/<slug>/tasks/` directory
 4. Update `INDEX.md`
 5. Report success (don't auto-commit, let user review or use sync)
 
-#### `/projectz task <project> <title>`
+### `/projectz task <project> <title>`
 1. Find next task number (scan existing task files)
 2. Generate task slug from title
 3. Create `projects/<project>/tasks/<num>-<slug>.md`
 4. Report success with task ID
 
-#### `/projectz done <project> <task-id>`
+### `/projectz done <project> <task-id>`
 1. Find task file matching ID (e.g., `001-*.md`)
 2. Update frontmatter: `status: done`
 3. Add completion timestamp
 4. Report success
 
-#### `/projectz sync`
+### `/projectz sync`
 1. `git add -A`
 2. `git commit -m "projectz sync: <timestamp>"` (skip if nothing to commit)
 3. `git pull --rebase`
 4. `git push`
 5. Report sync status
 
-#### `/projectz link <project> <local-path>`
+### `/projectz link <project> <local-path>`
 1. Read computer file for current computer
 2. Add/update entry in "Local Project Paths" table
 3. Optionally run `git -C <local-path> rev-parse HEAD` to record commit
 
-#### `/projectz discover`
+### `/projectz discover`
 1. Read all projects from `projects/`
 2. For each with a `repo:` URL, search common locations (`~/`, `~/code/`, `~/projects/`, etc.)
 3. If found, update computer's local paths
 4. Report findings
 
-### Important Notes
+## Important Notes
 
 - **Always use git for sync** - don't reinvent sync, just use `git pull`/`push`
 - **Human-readable first** - files should make sense when viewed on GitHub

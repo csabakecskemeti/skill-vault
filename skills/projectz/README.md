@@ -12,58 +12,33 @@ You run multiple projects across multiple machines. You need a simple way to:
 
 **No database. No SaaS. Just Markdown + Git.**
 
-## How It Works
-
-```
-┌─────────────────────────────────────┐
-│  Your projectz repo (GitHub)        │
-│  └── Markdown files                 │
-└──────────────────┬──────────────────┘
-                   │ git
-                   ▼
-┌─────────────────────────────────────┐
-│  /projectz skill (Claude Code)      │
-│  └── Reads/writes the markdown      │
-└─────────────────────────────────────┘
-```
-
 ## Installation
 
-### 1. Create your projectz repo
+### Via skill-vault plugin
 
-Create a new GitHub repo (e.g., `yourname/projectz`) and initialize it:
+```
+/plugin marketplace add csabakecskemeti/skill-vault
+/plugin install skill-vault
+```
+
+The skill will be available as `/skill-vault:projectz` or just `/projectz`.
+
+### Manual (single skill)
 
 ```bash
-git clone git@github.com:yourname/projectz.git
-cd projectz
+mkdir -p ~/.claude/skills
+cp -r projectz ~/.claude/skills/
 ```
 
-Copy the template structure from `template/` in this skill folder, or let `/projectz init` create it.
+## Setup
 
-### 2. Install the skill
-
-**Option A: Global (all projects)**
-```bash
-mkdir -p ~/.claude/commands
-cp projectz.md ~/.claude/commands/
-```
-
-**Option B: Per-project**
-```bash
-mkdir -p .claude/commands
-cp projectz.md .claude/commands/
-```
-
-### 3. Initialize
-
-In Claude Code:
-```
-/projectz init git@github.com:yourname/projectz.git
-```
+1. Create your own projectz repo on GitHub (e.g., `yourname/projectz`)
+2. Initialize it with the template from `template/` folder
+3. Run `/projectz init git@github.com:yourname/projectz.git`
 
 ## Usage
 
-```bash
+```
 /projectz                              # Show all projects
 /projectz new "My Web App"             # Create project
 /projectz task my-web-app "Add auth"   # Add task
@@ -86,6 +61,21 @@ In Claude Code:
 | `/projectz link <project> <path>` | Link to local checkout |
 | `/projectz sync` | Git add, commit, pull, push |
 | `/projectz discover` | Find local project checkouts |
+
+## How It Works
+
+```
+┌─────────────────────────────────────┐
+│  Your projectz repo (GitHub)        │
+│  └── Markdown files                 │
+└──────────────────┬──────────────────┘
+                   │ git clone/pull/push
+                   ▼
+┌─────────────────────────────────────┐
+│  /projectz skill (Claude Code)      │
+│  └── Reads/writes the markdown      │
+└─────────────────────────────────────┘
+```
 
 ## Repository Structure
 
