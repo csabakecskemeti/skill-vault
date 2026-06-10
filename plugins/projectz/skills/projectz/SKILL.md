@@ -1,138 +1,49 @@
 ---
 name: projectz
-description: Git-based markdown project tracker for managing personal projects across multiple computers. Use when tracking projects, managing tasks, checking project status, adding tasks, syncing work across machines, or when user mentions "my projects", "project tracker", or "projectz".
+description: Git-based project tracker and knowledge base. Use when user mentions "my projects", "project tracker", "projectz", or wants to track projects, add notes, manage tasks, or sync work across machines.
 license: MIT
-compatibility: Requires git and a GitHub account for syncing
+compatibility: Requires git and GitHub account
 metadata:
   author: csabakecskemeti
-  version: "0.5.1"
+  version: "0.6.0"
 ---
 
 # /projectz - Git-based Project Tracker
 
-Manage personal projects across multiple computers using Git and Markdown.
+A centralized knowledge base for tracking personal projects across multiple computers using Git and Markdown.
+
+**Key features:**
+- Track project status (active, backlog, done, etc.)
+- Detect your role (owner, fork, contributor, user)
+- Store private notes about any project (not committed to project repos)
+- Sync everything via Git
+
+---
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `/projectz` | Show status of all projects |
-| `/projectz init <repo-url>` | Clone projectz repo and register this computer |
-| `/projectz new <name>` | Create a new project |
-| `/projectz show <project>` | Show project details |
+| `/projectz` | Show summary of all projects (fast, read-only) |
+| `/projectz init <repo-url>` | First-time setup: clone repo, register this computer |
+| `/projectz scan` | Discover local repos, update status/role for all projects |
+| `/projectz note <project> <text>` | Add a private note about a project |
 | `/projectz task <project> <title>` | Add a task to a project |
 | `/projectz done <project> <task-id>` | Mark a task as done |
-| `/projectz note <project> <text>` | Add a note to a project |
-| `/projectz status <project> <status>` | Update project status |
-| `/projectz link <project> <local-path>` | Link project to local checkout on this computer |
-| `/projectz sync` | Pull latest, commit changes, push |
-| `/projectz discover [path]` | Scan for local git repos, create/update projects |
-| `/projectz scan` | Re-scan all projects: update status, detect role (owner/fork/contributor/user), count commits |
-
-## Project Statuses
-
-| Status | Description | Auto-infer criteria |
-|--------|-------------|---------------------|
-| `draft` | Just created, not started | No commits yet or only initial commit |
-| `active` | Currently being worked on | Commits within last 14 days |
-| `backlog` | Paused, will resume later | No commits in 14-90 days |
-| `review` | In review/testing phase | Manually set |
-| `done` | Completed | Manually set |
-| `archived` | No longer maintained | No commits in 90+ days, or manually set |
-
-### Status Inference Rules
-
-When running `/projectz scan` or `/projectz discover`, auto-infer status:
-
-```
-if last_commit < 14 days ago:
-    status = "active"
-elif last_commit < 90 days ago:
-    status = "backlog"
-else:
-    status = "archived" (suggest, don't auto-set)
-```
-
-Never auto-change `done` or `review` - those are manually set.
-Always report inferred changes and let user confirm before updating.
-
-## Project Roles
-
-Track your relationship with each project:
-
-| Role | Description | Detection |
-|------|-------------|-----------|
-| `owner` | You created it, it's yours | Remote URL has your username + first commits are yours |
-| `fork` | You forked someone else's repo | Your username in URL + has `upstream` remote or first commits aren't yours |
-| `contributor` | You contribute to others' repo | Not your URL + you have commits in the repo |
-| `user` | Just cloned to use it | Not your URL + no commits from you |
-
-### Role Detection Logic
-
-```bash
-# Get configured git username/email
-MY_EMAIL=$(git config user.email)
-MY_USERNAME=$(cat ~/.projectz.yaml | grep github_username | cut -d: -f2 | tr -d ' ')
-
-# Check if remote URL contains your username
-ORIGIN=$(git remote get-url origin 2>/dev/null)
-IS_MINE=$(echo "$ORIGIN" | grep -qi "$MY_USERNAME" && echo "yes" || echo "no")
-
-# Check for upstream remote (indicates fork)
-HAS_UPSTREAM=$(git remote | grep -q upstream && echo "yes" || echo "no")
-
-# Get first commit author
-FIRST_AUTHOR=$(git log --reverse --format="%ae" 2>/dev/null | head -1)
-
-# Count commits by me vs total
-MY_COMMITS=$(git shortlog -sne --all | grep -i "$MY_EMAIL" | awk '{sum+=$1} END {print sum+0}')
-TOTAL_COMMITS=$(git rev-list --all --count 2>/dev/null || echo 0)
-
-# Determine role
-if [ "$IS_MINE" = "yes" ]; then
-    if [ "$HAS_UPSTREAM" = "yes" ] || [ "$FIRST_AUTHOR" != "$MY_EMAIL" ]; then
-        ROLE="fork"
-    else
-        ROLE="owner"
-    fi
-else
-    if [ "$MY_COMMITS" -gt 0 ]; then
-        ROLE="contributor"
-    else
-        ROLE="user"
-    fi
-fi
-```
-
-### Role-based Filtering
-
-When showing projects, can filter by role:
-- `/projectz` - show all
-- `/projectz --mine` - show only `owner` + `fork`
-- `/projectz --contributing` - show `contributor`
-- `/projectz --using` - show `user`
+| `/projectz sync` | Commit and push changes to projectz repo |
 
 ---
 
-## Configuration
+## Definitions
 
-### Local Config (`~/.projectz.yaml`)
+### Computer ID (MAC Address)
 
-```yaml
-computer_id: a1b2c3d4e5f6    # MAC address (no colons)
-computer_name: macbook-pro    # Friendly name
-projectz_repo: ~/projectz     # Local clone path
-github_username: csabakecskemeti  # For role detection
-git_email: user@example.com       # For commit attribution detection
-```
-
-### Getting Computer ID (MAC Address)
-
-The computer ID must be derived from a network interface MAC address for uniqueness:
+Each computer is identified by its primary network interface MAC address (lowercase, no separators).
 
 **macOS:**
 ```bash
 ifconfig en0 | grep ether | awk '{print $2}' | tr -d ':'
+# Example output: a1b2c3d4e5f6
 ```
 
 **Linux:**
@@ -145,76 +56,84 @@ cat /sys/class/net/eth0/address | tr -d ':'
 (Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -First 1).MacAddress -replace '-',''
 ```
 
-Store the result (lowercase, no separators) as `computer_id`. The same MAC must appear in the computer's registration file for identity verification.
+### Project Slug
+
+URL-friendly identifier derived from project name: lowercase, hyphens instead of spaces.
+- "My Cool Project" → `my-cool-project`
+- "API_v2" → `api-v2`
+
+### Statuses
+
+| Status | Description | Auto-infer rule |
+|--------|-------------|-----------------|
+| `draft` | Just created | No commits or only initial commit |
+| `active` | Currently working on | Last commit < 14 days ago |
+| `backlog` | Paused, will resume | Last commit 14-90 days ago |
+| `review` | In review/testing | Manual only |
+| `done` | Completed | Manual only |
+| `archived` | No longer maintained | Last commit > 90 days (suggest, don't auto-set) |
+
+### Roles
+
+| Role | Description | Detection |
+|------|-------------|-----------|
+| `owner` | You created it | Your username in remote URL + your first commit |
+| `fork` | You forked it | Your username in URL + has `upstream` remote OR first commit not yours |
+| `contributor` | You contribute | Not your URL + you have commits |
+| `user` | Just using it | Not your URL + no commits from you |
 
 ---
 
-## Repository Structure
+## Data Formats
+
+### Local Config: `~/.projectz.yaml`
+
+```yaml
+computer_id: a1b2c3d4e5f6
+computer_name: macbook-pro
+projectz_repo: ~/projectz
+github_username: yourname
+git_email: you@example.com
+```
+
+### Repository Structure
 
 ```
-projectz/
-├── README.md              # Repo overview
-├── AGENTS.md              # Instructions for AI agents
-├── INDEX.md               # Auto-maintained project index
-├── computers/             # Registered computers
-│   └── <computer-id>.md   # Computer info + MAC addresses + local paths
+~/projectz/
+├── README.md
+├── AGENTS.md
+├── INDEX.md
+├── computers/
+│   └── <mac-id>.md
 └── projects/
-    └── <project-slug>/
-        ├── README.md      # Project description (what it is)
-        ├── MAP.md         # Project hub: status, links to docs
-        └── tasks/
-            └── 001-<slug>.md
+    └── <slug>/
+        ├── README.md      # What the project is
+        ├── MAP.md         # Status, role, metadata
+        ├── tasks/
+        │   └── 001-<slug>.md
+        └── notes/
+            └── <date>-<slug>.md
 ```
 
----
-
-## File Formats
-
-### MAP.md Frontmatter Fields
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `slug` | yes | URL-friendly project identifier |
-| `status` | yes | draft, active, backlog, review, done, archived |
-| `role` | no | owner, fork, contributor, user (auto-detected) |
-| `has_git` | no | true/false - is project under version control |
-| `repo` | no | Remote repository URL |
-| `upstream` | no | Original repo URL if this is a fork |
-| `tags` | no | List of tags for categorization |
-| `created` | yes | Creation date (YYYY-MM-DD) |
-| `updated` | yes | Last update date (YYYY-MM-DD) |
-| `last_commit` | no | Date of last git commit (auto-updated by scan) |
-| `last_activity` | no | Date of last file modification (auto-updated by scan) |
-| `my_commits` | no | Number of commits by you (auto-updated by scan) |
-| `total_commits` | no | Total commits in repo (auto-updated by scan) |
-
-### MAP.md Sections
-
-| Section | Purpose |
-|---------|---------|
-| **Repository** | Git status, remote URL, branch info |
-| **Files > Temporary** | Safe to delete: builds, caches, logs |
-| **Files > Private** | Don't share: .env, secrets, local configs |
-| **Files > Core** | Important: source, docs, tests |
-| **Quick Links** | Links to tasks/, notes/, howto/ |
-| **Recent Notes** | Latest notes with links |
-| **Related Documents** | Links to docs, guides, decisions |
-
-### Project README.md (description only)
+### Computer File: `computers/<mac-id>.md`
 
 ```markdown
-# My Project
+---
+id: a1b2c3d4e5f6
+name: macbook-pro
+registered: 2024-01-15
+---
 
-Brief description of what this project is.
+# macbook-pro
 
-## Overview
+## Local Paths
 
-More details about the project goals and scope.
-
-See [MAP.md](./MAP.md) for status, tasks, and related documents.
+| Project | Path | Last Commit |
+|---------|------|-------------|
+| my-project | ~/code/my-project | abc1234 |
 ```
 
-### Project MAP.md (central hub)
+### Project MAP.md
 
 ```markdown
 ---
@@ -231,258 +150,305 @@ my_commits: 47
 total_commits: 52
 ---
 
-# My Project - Map
+# my-project
 
-## Status
-
-Current: **active** | Role: **owner**
+**Status:** active | **Role:** owner | **Commits:** 47/52
 
 ## Quick Links
 
 - [Tasks](./tasks/)
 - [Notes](./notes/)
-- [How-To Guides](./howto/)
 
 ## Repository
 
-- **Git**: yes, initialized
-- **Remote**: https://github.com/user/my-project
-- **Default branch**: main
-
-## Files
-
-### Temporary (safe to delete)
-- `build/`, `dist/` - build outputs
-- `*.log` - log files
-- `.cache/`, `__pycache__/` - caches
-- `node_modules/` - dependencies (reinstallable)
-
-### Private (don't share publicly)
-- `.env`, `.env.local` - environment secrets
-- `config.local.yaml` - local overrides
-- `secrets/` - API keys, credentials
-- `*.pem`, `*.key` - certificates/keys
-
-### Core (important, back up)
-- `src/` - source code
-- `docs/` - documentation
-- `tests/` - test files
+- Remote: https://github.com/user/my-project
+- Branch: main
 
 ## Recent Notes
 
-- [2024-01-20 - Auth Research](./notes/2024-01-20-auth-research.md)
-- [2024-01-15 - Initial Setup](./notes/2024-01-15-initial-setup.md)
-
-## Related Documents
-
-- [Architecture Decision](./docs/architecture.md)
-- [Deployment Guide](./howto/deploy.md)
+- [2024-01-20 - Auth research](./notes/2024-01-20-auth-research.md)
 ```
 
-### Task file (tasks/001-setup.md)
+### Task File: `tasks/001-setup.md`
 
 ```markdown
 ---
 id: "001"
-title: Set up project structure
+title: Set up project
 status: active
 priority: high
 created: 2024-01-15
 ---
 
-# Set up project structure
+# Set up project
 
-Create the initial directory structure and configuration files.
+Description here.
 
 ## Acceptance Criteria
 
-- [ ] Directory structure created
-- [ ] Config files in place
+- [ ] Directory structure
+- [ ] Config files
 ```
 
-### Computer file (computers/<mac-id>.md)
+### Note File: `notes/<date>-<slug>.md`
 
 ```markdown
 ---
-id: a1b2c3d4e5f6
-name: macbook-pro
-mac_addresses:
-  - a1b2c3d4e5f6
-  - f6e5d4c3b2a1
-registered: 2024-01-15
+date: 2024-01-20
+tags: [research, auth]
 ---
 
-# macbook-pro
+# Auth Research
 
-## Local Project Paths
-
-| Project | Local Path | Last Commit |
-|---------|------------|-------------|
-| my-project | ~/code/my-project | abc1234 |
+Private notes about authentication approach...
 ```
 
 ---
 
-## Command Implementations
+## Utilities
+
+### Get MAC Address (macOS)
+```bash
+MAC_ID=$(ifconfig en0 | grep ether | awk '{print $2}' | tr -d ':')
+```
+
+### Get Last Commit Date
+```bash
+LAST_COMMIT=$(git log -1 --format=%Y-%m-%d 2>/dev/null || echo "")
+```
+
+### Get Days Since Last Commit
+```bash
+DAYS_AGO=$(git log -1 --format=%ct 2>/dev/null | xargs -I {} bash -c 'echo $(( ($(date +%s) - {}) / 86400 ))')
+```
+
+### Detect Role
+```bash
+MY_USERNAME=$(grep github_username ~/.projectz.yaml | cut -d: -f2 | tr -d ' ')
+MY_EMAIL=$(git config user.email)
+ORIGIN=$(git remote get-url origin 2>/dev/null)
+IS_MINE=$(echo "$ORIGIN" | grep -qi "$MY_USERNAME" && echo "yes" || echo "no")
+HAS_UPSTREAM=$(git remote | grep -q upstream && echo "yes" || echo "no")
+FIRST_AUTHOR=$(git log --reverse --format=%ae 2>/dev/null | head -1)
+MY_COMMITS=$(git shortlog -sne --all 2>/dev/null | grep -i "$MY_EMAIL" | awk '{sum+=$1} END {print sum+0}')
+TOTAL_COMMITS=$(git rev-list --all --count 2>/dev/null || echo 0)
+
+if [ "$IS_MINE" = "yes" ]; then
+    if [ "$HAS_UPSTREAM" = "yes" ] || [ "$FIRST_AUTHOR" != "$MY_EMAIL" ]; then
+        ROLE="fork"
+    else
+        ROLE="owner"
+    fi
+else
+    if [ "$MY_COMMITS" -gt 0 ]; then
+        ROLE="contributor"
+    else
+        ROLE="user"
+    fi
+fi
+```
+
+### Infer Status from Days
+```bash
+if [ "$DAYS_AGO" -lt 14 ]; then
+    STATUS="active"
+elif [ "$DAYS_AGO" -lt 90 ]; then
+    STATUS="backlog"
+else
+    STATUS="archived"  # suggest only, don't auto-set
+fi
+```
+
+---
+
+## Command Details
+
+### `/projectz` (no args)
+
+Show summary of all projects. Fast, read-only.
+
+**Logic:**
+1. If no `~/.projectz.yaml` exists:
+   - Print: "No projectz config. Run `/projectz init <repo-url>` to get started."
+   - Stop.
+
+2. If config exists, read `~/projectz/projects/*/MAP.md`
+
+3. For this computer, check `~/projectz/computers/<mac-id>.md` for local paths
+
+4. Display table:
+   ```
+   | Project    | Status  | Role   | Last Commit | Local |
+   |------------|---------|--------|-------------|-------|
+   | my-project | active  | owner  | 2 days ago  | yes   |
+   | other-proj | backlog | fork   | 45 days     | yes   |
+   | team-proj  | active  | contrib| 1 day ago   | no    |
+   ```
+
+5. If no projects linked to this computer:
+   - Print: "No local projects found. Run `/projectz scan` to discover repos."
 
 ### `/projectz init <repo-url>`
-1. Clone the repo to `~/projectz` (or ask user for location)
-2. Get MAC address from primary network interface
-3. Extract GitHub username from repo URL (e.g., `csabakecskemeti` from `github.com/csabakecskemeti/projectz`)
-4. Get git email from `git config user.email`
-5. Create `~/.projectz.yaml` with:
-   - `computer_id`: MAC address
-   - `computer_name`: hostname
-   - `projectz_repo`: local path
-   - `github_username`: extracted from repo URL
-   - `git_email`: from git config
-6. Create `computers/<mac-id>.md` with all local MAC addresses
-7. Commit and push the computer registration
-8. Confirm setup complete
 
-### `/projectz new <name>`
-1. Generate slug from name (lowercase, hyphens)
-2. Create `projects/<slug>/README.md` with description template
-3. Create `projects/<slug>/MAP.md` with status and links
-4. Create `projects/<slug>/tasks/` directory
-5. Update `INDEX.md`
-6. Report success
+First-time setup on a new computer.
 
-### `/projectz task <project> <title>`
-1. Find next task number (scan existing task files)
-2. Generate task slug from title
-3. Create `projects/<project>/tasks/<num>-<slug>.md`
-4. Report success with task ID
-
-### `/projectz done <project> <task-id>`
-1. Find task file matching ID (e.g., `001-*.md`)
-2. Update frontmatter: `status: done`
-3. Add `completed: <date>` to frontmatter
-4. Report success
-
-### `/projectz note <project> <text>`
-1. Create `projects/<project>/notes/` if not exists
-2. Create `<date>-<slug>.md` with the note content
-3. Add link to MAP.md under "Recent Notes"
-4. Report success
-
-### `/projectz sync`
-1. `git add -A`
-2. `git commit -m "projectz: <summary of changes>"` (skip if nothing to commit)
-3. `git pull --rebase`
-4. `git push`
-5. Report sync status
-
-### `/projectz link <project> <local-path>`
-1. Read computer file for current computer (match by MAC)
-2. Add/update entry in "Local Project Paths" table
-3. Run `git -C <local-path> rev-parse --short HEAD` to record commit
-4. Report success
-
-### `/projectz discover [path]`
-1. If path provided, scan that directory for git repos
-2. If no path, search common locations (`~/`, `~/code/`, `~/projects/`, `~/Documents/workspace/`)
-3. For each git repo found:
-   - Get remote URL from `.git/config`
-   - Get last commit date: `git log -1 --format=%ci`
-   - Check if project exists in projectz
-   - If exists: update local path in computer file
-   - If new: offer to create project entry with inferred status
-4. Infer status based on last commit date (see Status Inference Rules)
-5. Update computer's local paths table
-6. Report findings with suggested actions
+**Steps:**
+1. Clone repo: `git clone <repo-url> ~/projectz`
+2. Get MAC address (see Utilities)
+3. Extract username from repo URL
+4. Get email: `git config user.email`
+5. Create `~/.projectz.yaml`:
+   ```yaml
+   computer_id: <mac>
+   computer_name: <hostname>
+   projectz_repo: ~/projectz
+   github_username: <extracted>
+   git_email: <email>
+   ```
+6. Create `computers/<mac>.md` if not exists
+7. Commit and push
+8. Print: "Setup complete. Run `/projectz scan` to discover local repos."
 
 ### `/projectz scan`
 
-**This command exists and must be followed exactly.**
+Discover local repos and update all project metadata. This is the main "sync" operation.
 
-For each project in `~/projectz/projects/*/MAP.md`:
+**Steps:**
 
-1. **Read config**: Load `~/.projectz.yaml` to get `github_username` and `git_email`
+1. **Pull latest**: `cd ~/projectz && git pull --rebase`
 
-2. **Find local path**: Check `~/projectz/computers/<computer-id>.md` for local path of this project
+2. **Load config**: Read `~/.projectz.yaml` for `computer_id`, `github_username`, `git_email`
 
-3. **If local path exists, cd there and collect**:
+3. **Scan for repos**: Search common directories for git repos:
    ```bash
-   # Last commit date
-   LAST_COMMIT=$(git log -1 --format=%Y-%m-%d 2>/dev/null || echo "")
-
-   # Days since last commit
-   DAYS_AGO=$(git log -1 --format=%ct 2>/dev/null | xargs -I {} bash -c 'echo $(( ($(date +%s) - {}) / 86400 ))')
-
-   # Commit counts
-   MY_EMAIL=$(git config user.email)
-   MY_COMMITS=$(git shortlog -sne --all 2>/dev/null | grep -i "$MY_EMAIL" | awk '{sum+=$1} END {print sum+0}')
-   TOTAL_COMMITS=$(git rev-list --all --count 2>/dev/null || echo 0)
-
-   # Role detection
-   MY_USERNAME=$(cat ~/.projectz.yaml | grep github_username | cut -d: -f2 | tr -d ' ')
-   ORIGIN=$(git remote get-url origin 2>/dev/null)
-   IS_MINE=$(echo "$ORIGIN" | grep -qi "$MY_USERNAME" && echo "yes" || echo "no")
-   HAS_UPSTREAM=$(git remote | grep -q upstream && echo "yes" || echo "no")
-   FIRST_AUTHOR=$(git log --reverse --format=%ae 2>/dev/null | head -1)
-
-   if [ "$IS_MINE" = "yes" ]; then
-       if [ "$HAS_UPSTREAM" = "yes" ] || [ "$FIRST_AUTHOR" != "$MY_EMAIL" ]; then
-           ROLE="fork"
-       else
-           ROLE="owner"
-       fi
-   else
-       if [ "$MY_COMMITS" -gt 0 ]; then
-           ROLE="contributor"
-       else
-           ROLE="user"
-       fi
-   fi
+   find ~/Documents/workspace ~/code ~/projects ~/ -maxdepth 3 -name ".git" -type d 2>/dev/null
    ```
 
-4. **Infer status from days_ago**:
-   - `< 14 days` → `active`
-   - `14-90 days` → `backlog`
-   - `> 90 days` → suggest `archived` (don't auto-set)
-   - Never change `done` or `review` automatically
+4. **For each repo found:**
+   - Get remote URL: `git remote get-url origin`
+   - Get project name from URL or folder name
+   - Generate slug
+   - Run role detection (see Utilities)
+   - Run status inference (see Utilities)
+   - Get commit counts
 
-5. **Update MAP.md frontmatter** with:
-   - `last_commit: YYYY-MM-DD`
-   - `role: owner|fork|contributor|user`
-   - `my_commits: N`
-   - `total_commits: N`
-   - `status: active|backlog` (if changed, ask user first)
+5. **Match to existing projects or create new:**
+   - If `projects/<slug>/MAP.md` exists: update it
+   - If new repo: create `projects/<slug>/README.md` and `MAP.md`
 
-6. **Report summary**:
+6. **Update computer file:**
+   - Add/update local paths in `computers/<mac>.md`
+
+7. **Report changes:**
    ```
-   project-x: role=owner, status=active, 47/52 commits
-   project-y: role=fork, status=backlog (45 days), 12/89 commits
-   project-z: role=contributor, status=active, 5/200 commits
+   Updated: my-project (active, owner, 47/52 commits)
+   Updated: other-proj (backlog, fork, 12/89 commits)
+   New: new-project (active, owner, 15/15 commits)
+   Skipped: third-party-lib (role=user, not tracking)
    ```
 
-7. **Commit and push** changes to projectz repo
+8. **Ask before status changes:**
+   - If status would change (e.g., active→backlog), ask user to confirm
+   - Never auto-change `done` or `review`
 
-### Activity detection commands
+9. **Commit and push:**
+   ```bash
+   git add -A
+   git commit -m "projectz: scan from <computer-name>"
+   git push
+   ```
 
-**Get last commit date (cross-platform):**
-```bash
-git log -1 --format=%ci 2>/dev/null || echo "no commits"
-```
+### `/projectz note <project> <text>`
 
-**Get days since last commit:**
-```bash
-git log -1 --format=%ct | xargs -I {} bash -c 'echo $(( ($(date +%s) - {}) / 86400 )) days'
-```
+Add a private note about a project. Notes are stored in projectz repo, NOT the project's own repo.
 
-**Check if repo has uncommitted changes:**
-```bash
-git status --porcelain | head -1
-```
+**Steps:**
+1. Generate slug from first few words of text
+2. Create `projects/<project>/notes/` if not exists
+3. Create `<date>-<slug>.md`:
+   ```markdown
+   ---
+   date: YYYY-MM-DD
+   ---
+
+   # <title from text>
+
+   <text>
+   ```
+4. Update MAP.md "Recent Notes" section
+5. Print: "Note added to <project>"
+
+### `/projectz task <project> <title>`
+
+Add a task to a project.
+
+**Steps:**
+1. Find next task number (scan `tasks/` directory)
+2. Generate slug from title
+3. Create `tasks/<num>-<slug>.md`:
+   ```markdown
+   ---
+   id: "<num>"
+   title: <title>
+   status: active
+   created: YYYY-MM-DD
+   ---
+
+   # <title>
+   ```
+4. Print: "Task <num> added to <project>"
+
+### `/projectz done <project> <task-id>`
+
+Mark a task as done.
+
+**Steps:**
+1. Find task file matching ID (e.g., `001-*.md`)
+2. Update frontmatter: `status: done`, add `completed: YYYY-MM-DD`
+3. Print: "Task <id> marked done"
+
+### `/projectz sync`
+
+Commit and push any pending changes.
+
+**Steps:**
+1. `cd ~/projectz`
+2. `git add -A`
+3. `git diff --cached --quiet || git commit -m "projectz: sync"`
+4. `git pull --rebase`
+5. `git push`
+6. Print: "Synced"
+
+---
+
+## How to Reset / Start Over
+
+If you need to reinitialize on this computer:
+
+1. Delete local config:
+   ```bash
+   rm ~/.projectz.yaml
+   ```
+
+2. (Optional) Remove local clone if switching to a different repo:
+   ```bash
+   rm -rf ~/projectz
+   ```
+
+3. Re-initialize:
+   ```
+   /projectz init <repo-url>
+   ```
+
+This only affects this computer. Your projectz repo and other computers are unchanged.
 
 ---
 
 ## Important Notes
 
-- **MAC for identity** - Computer ID is MAC address; at least one registered MAC must match local interfaces
-- **README = description** - Keep README.md focused on what the project is
-- **MAP = hub** - MAP.md links to everything: status, tasks, notes, docs
-- **Progressive linking** - MAP.md links to notes/, docs/, howto/ as needed
-- **Git for sync** - Don't reinvent sync, just use `git pull`/`push`
-- **Human-readable** - Files should make sense when viewed on GitHub
+- **Notes are private** - Stored in projectz repo, not in project repos. Use for internal thoughts, research, decisions.
+- **Git for sync** - Just `git pull`/`push`. No special sync logic.
+- **Human-readable** - All files are markdown, viewable on GitHub.
+- **Multi-computer** - Same projectz repo, different computers register themselves.
+- **Role detection** - Automatically determines your relationship to each project.
+- **Status inference** - Suggests status based on commit activity, but asks before changing.

@@ -1,7 +1,7 @@
 {
   "name": "projectz",
   "description": "Git-based markdown project tracker for managing personal projects across multiple computers",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "author": {
     "name": "csabakecskemeti"
   },
