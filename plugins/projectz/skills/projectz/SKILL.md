@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires git and a GitHub account for syncing
 metadata:
   author: csabakecskemeti
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # /projectz - Git-based Project Tracker
@@ -23,10 +23,38 @@ Manage personal projects across multiple computers using Git and Markdown.
 | `/projectz task <project> <title>` | Add a task to a project |
 | `/projectz done <project> <task-id>` | Mark a task as done |
 | `/projectz note <project> <text>` | Add a note to a project |
-| `/projectz status <project> <status>` | Update project status (draft/active/review/done/archived) |
+| `/projectz status <project> <status>` | Update project status |
 | `/projectz link <project> <local-path>` | Link project to local checkout on this computer |
 | `/projectz sync` | Pull latest, commit changes, push |
-| `/projectz discover` | Scan for local checkouts of known project repos |
+| `/projectz discover [path]` | Scan for local git repos, create/update projects |
+| `/projectz scan` | Re-scan all projects and auto-infer status from activity |
+
+## Project Statuses
+
+| Status | Description | Auto-infer criteria |
+|--------|-------------|---------------------|
+| `draft` | Just created, not started | No commits yet or only initial commit |
+| `active` | Currently being worked on | Commits within last 14 days |
+| `backlog` | Paused, will resume later | No commits in 14-90 days |
+| `review` | In review/testing phase | Manually set |
+| `done` | Completed | Manually set |
+| `archived` | No longer maintained | No commits in 90+ days, or manually set |
+
+### Status Inference Rules
+
+When running `/projectz scan` or `/projectz discover`, auto-infer status:
+
+```
+if last_commit < 14 days ago:
+    status = "active"
+elif last_commit < 90 days ago:
+    status = "backlog"
+else:
+    status = "archived" (suggest, don't auto-set)
+```
+
+Never auto-change `done` or `review` - those are manually set.
+Always report inferred changes and let user confirm before updating.
 
 ---
 
@@ -89,12 +117,14 @@ projectz/
 | Field | Required | Description |
 |-------|----------|-------------|
 | `slug` | yes | URL-friendly project identifier |
-| `status` | yes | draft, active, review, done, archived |
+| `status` | yes | draft, active, backlog, review, done, archived |
 | `has_git` | no | true/false - is project under version control |
 | `repo` | no | Remote repository URL |
 | `tags` | no | List of tags for categorization |
 | `created` | yes | Creation date (YYYY-MM-DD) |
 | `updated` | yes | Last update date (YYYY-MM-DD) |
+| `last_commit` | no | Date of last git commit (auto-updated by scan) |
+| `last_activity` | no | Date of last file modification (auto-updated by scan) |
 
 ### MAP.md Sections
 
@@ -276,12 +306,49 @@ registered: 2024-01-15
 3. Run `git -C <local-path> rev-parse --short HEAD` to record commit
 4. Report success
 
-### `/projectz discover`
+### `/projectz discover [path]`
+1. If path provided, scan that directory for git repos
+2. If no path, search common locations (`~/`, `~/code/`, `~/projects/`, `~/Documents/workspace/`)
+3. For each git repo found:
+   - Get remote URL from `.git/config`
+   - Get last commit date: `git log -1 --format=%ci`
+   - Check if project exists in projectz
+   - If exists: update local path in computer file
+   - If new: offer to create project entry with inferred status
+4. Infer status based on last commit date (see Status Inference Rules)
+5. Update computer's local paths table
+6. Report findings with suggested actions
+
+### `/projectz scan`
 1. Read all projects from `projects/`
-2. For each with a `repo:` URL, search common locations (`~/`, `~/code/`, `~/projects/`, `~/Documents/`)
-3. Match by checking if `.git/config` contains the repo URL
-4. If found, update computer's local paths
-5. Report findings
+2. For each project with a local path on this computer:
+   - `cd` to local path
+   - Get last commit: `git log -1 --format=%ci`
+   - Get last file change: `find . -type f -not -path "./.git/*" -exec stat -f "%m" {} \; | sort -rn | head -1`
+   - Compare with current status
+3. Generate status change suggestions:
+   - "project-x: active → backlog (no commits in 45 days)"
+   - "project-y: backlog → active (commit 2 days ago)"
+4. Update `last_commit` and `last_activity` in MAP.md frontmatter
+5. Ask user to confirm status changes before applying
+6. Report summary
+
+### Activity detection commands
+
+**Get last commit date (cross-platform):**
+```bash
+git log -1 --format=%ci 2>/dev/null || echo "no commits"
+```
+
+**Get days since last commit:**
+```bash
+git log -1 --format=%ct | xargs -I {} bash -c 'echo $(( ($(date +%s) - {}) / 86400 )) days'
+```
+
+**Check if repo has uncommitted changes:**
+```bash
+git status --porcelain | head -1
+```
 
 ---
 
