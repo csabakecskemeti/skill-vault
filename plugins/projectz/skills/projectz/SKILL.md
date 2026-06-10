@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires git and a GitHub account for syncing
 metadata:
   author: csabakecskemeti
-  version: "0.4.0"
+  version: "0.5.0"
 ---
 
 # /projectz - Git-based Project Tracker
@@ -399,12 +399,21 @@ registered: 2024-01-15
    - Get last commit: `git log -1 --format=%ci`
    - Get last file change: `find . -type f -not -path "./.git/*" -exec stat -f "%m" {} \; | sort -rn | head -1`
    - Compare with current status
+   - Detect role using Role Detection Logic (see above)
+   - Count commits: `my_commits` and `total_commits`
 3. Generate status change suggestions:
    - "project-x: active → backlog (no commits in 45 days)"
    - "project-y: backlog → active (commit 2 days ago)"
-4. Update `last_commit` and `last_activity` in MAP.md frontmatter
-5. Ask user to confirm status changes before applying
-6. Report summary
+4. Generate role detection results:
+   - "project-x: role=owner (your URL, your first commit)"
+   - "project-y: role=fork (your URL, has upstream remote)"
+   - "project-z: role=contributor (not your URL, 15 commits by you)"
+5. Update MAP.md frontmatter:
+   - `last_commit`, `last_activity` (activity dates)
+   - `role` (owner/fork/contributor/user)
+   - `my_commits`, `total_commits` (commit counts)
+6. Ask user to confirm status changes before applying
+7. Report summary with both status and role updates
 
 ### Activity detection commands
 
