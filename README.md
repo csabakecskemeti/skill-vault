@@ -1,57 +1,38 @@
 # Skill Vault
 
-A Claude Code plugin containing reusable skills.
+A Claude Code plugin marketplace containing reusable skills.
 
 ## Installation
-
-### From GitHub (recommended)
 
 ```
 /plugin marketplace add csabakecskemeti/skill-vault
 /plugin install projectz@skill-vault
 ```
 
-### Manual installation
+## Available Plugins
 
-Clone and link locally:
+| Plugin | Command | Description |
+|--------|---------|-------------|
+| [projectz](./plugins/projectz/) | `/projectz` | Git-based markdown project tracker for managing projects across multiple computers |
 
-```bash
-git clone https://github.com/csabakecskemeti/skill-vault.git
+## Structure
+
+```
+skill-vault/
+├── .claude-plugin/
+│   └── marketplace.json       # Marketplace catalog
+└── plugins/
+    └── projectz/
+        ├── .claude-plugin/
+        │   └── plugin.json    # Plugin manifest
+        └── skills/
+            └── projectz/
+                └── SKILL.md   # Skill definition
 ```
 
-Then in Claude Code:
-```
-claude --plugin-dir /path/to/skill-vault
-```
+## Creating Plugins
 
-Or copy individual skills to your personal skills folder:
-```bash
-cp -r skills/projectz ~/.claude/skills/
-```
-
-## Available Skills
-
-| Skill | Command | Description |
-|-------|---------|-------------|
-| [projectz](./skills/projectz/) | `/projectz` | Git-based markdown project tracker for managing projects across multiple computers |
-
-## Creating Skills
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on creating and submitting skills.
-
-## Skill Format
-
-Each skill lives in `skills/<name>/` and must have a `SKILL.md` with YAML frontmatter:
-
-```markdown
----
-name: my-skill
-description: What this skill does and when to use it
-argument-hint: "[arg1] [arg2]"
----
-
-# Skill instructions here...
-```
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
 ## License
 

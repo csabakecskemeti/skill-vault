@@ -1,14 +1,12 @@
 {
   "name": "skill-vault",
-  "description": "A collection of reusable Claude Code skills",
-  "version": "0.2.0",
   "owner": {
     "name": "csabakecskemeti"
   },
   "plugins": [
     {
       "name": "projectz",
-      "source": "./skills/projectz",
+      "source": "./plugins/projectz",
       "description": "Git-based markdown project tracker for managing personal projects across multiple computers"
     }
   ]
