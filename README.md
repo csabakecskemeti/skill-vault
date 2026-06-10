@@ -4,8 +4,16 @@ A Claude Code plugin marketplace containing reusable skills.
 
 ## Installation
 
+**Add the marketplace:**
 ```
 /plugin marketplace add csabakecskemeti/skill-vault
+```
+
+**Install the plugin (choose one):**
+```
+# Option 1: Interactive - run /plugin, select projectz, press 'i' to install
+
+# Option 2: Command line
 /plugin install projectz@skill-vault
 ```
 
