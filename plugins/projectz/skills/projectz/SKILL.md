@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires git and GitHub account
 metadata:
   author: csabakecskemeti
-  version: "0.6.0"
+  version: "0.6.1"
 ---
 
 # /projectz - Git-based Project Tracker
@@ -30,7 +30,7 @@ A centralized knowledge base for tracking personal projects across multiple comp
 | `/projectz note <project> <text>` | Add a private note about a project |
 | `/projectz task <project> <title>` | Add a task to a project |
 | `/projectz done <project> <task-id>` | Mark a task as done |
-| `/projectz sync` | Commit and push changes to projectz repo |
+| `/projectz sync` | Commit and push changes to tracker repo |
 
 ---
 
@@ -91,15 +91,17 @@ URL-friendly identifier derived from project name: lowercase, hyphens instead of
 ```yaml
 computer_id: a1b2c3d4e5f6
 computer_name: macbook-pro
-projectz_repo: ~/projectz
+tracker_repo: ~/my-projects    # Path to your tracker repo (any name)
 github_username: yourname
 git_email: you@example.com
 ```
 
+**Important:** `tracker_repo` is the path where you cloned your tracker repository. It can be any name (e.g., `~/my-projects`, `~/tracker`, `~/work-tracker`). All commands read this path from config.
+
 ### Repository Structure
 
 ```
-~/projectz/
+<tracker_repo>/              # e.g., ~/my-projects/
 ├── README.md
 ├── AGENTS.md
 ├── INDEX.md
@@ -207,6 +209,11 @@ Private notes about authentication approach...
 
 ## Utilities
 
+### Get Tracker Repo Path
+```bash
+TRACKER_REPO=$(grep tracker_repo ~/.projectz.yaml | cut -d: -f2 | tr -d ' ' | sed "s|~|$HOME|")
+```
+
 ### Get MAC Address (macOS)
 ```bash
 MAC_ID=$(ifconfig en0 | grep ether | awk '{print $2}' | tr -d ':')
@@ -272,9 +279,9 @@ Show summary of all projects. Fast, read-only.
    - Print: "No projectz config. Run `/projectz init <repo-url>` to get started."
    - Stop.
 
-2. If config exists, read `~/projectz/projects/*/MAP.md`
+2. Read `tracker_repo` from config, then read `<tracker_repo>/projects/*/MAP.md`
 
-3. For this computer, check `~/projectz/computers/<mac-id>.md` for local paths
+3. For this computer, check `<tracker_repo>/computers/<mac-id>.md` for local paths
 
 4. Display table:
    ```
@@ -288,26 +295,29 @@ Show summary of all projects. Fast, read-only.
 5. If no projects linked to this computer:
    - Print: "No local projects found. Run `/projectz scan` to discover repos."
 
-### `/projectz init <repo-url>`
+### `/projectz init <repo-url> [path]`
 
 First-time setup on a new computer.
 
 **Steps:**
-1. Clone repo: `git clone <repo-url> ~/projectz`
-2. Get MAC address (see Utilities)
-3. Extract username from repo URL
-4. Get email: `git config user.email`
-5. Create `~/.projectz.yaml`:
+1. Determine clone path:
+   - If `[path]` provided, use it
+   - Otherwise, derive from repo URL (e.g., `my-projects.git` → `~/my-projects`)
+2. Clone repo: `git clone <repo-url> <path>`
+3. Get MAC address (see Utilities)
+4. Extract username from repo URL
+5. Get email: `git config user.email`
+6. Create `~/.projectz.yaml`:
    ```yaml
    computer_id: <mac>
    computer_name: <hostname>
-   projectz_repo: ~/projectz
+   tracker_repo: <path>
    github_username: <extracted>
    git_email: <email>
    ```
-6. Create `computers/<mac>.md` if not exists
-7. Commit and push
-8. Print: "Setup complete. Run `/projectz scan` to discover local repos."
+7. Create `computers/<mac>.md` if not exists
+8. Commit and push
+9. Print: "Setup complete. Run `/projectz scan` to discover local repos."
 
 ### `/projectz scan`
 
@@ -315,9 +325,9 @@ Discover local repos and update all project metadata. This is the main "sync" op
 
 **Steps:**
 
-1. **Pull latest**: `cd ~/projectz && git pull --rebase`
+1. **Load config**: Read `~/.projectz.yaml` for `tracker_repo`, `computer_id`, `github_username`, `git_email`
 
-2. **Load config**: Read `~/.projectz.yaml` for `computer_id`, `github_username`, `git_email`
+2. **Pull latest**: `cd <tracker_repo> && git pull --rebase`
 
 3. **Scan for repos**: Search common directories for git repos:
    ```bash
@@ -360,7 +370,7 @@ Discover local repos and update all project metadata. This is the main "sync" op
 
 ### `/projectz note <project> <text>`
 
-Add a private note about a project. Notes are stored in projectz repo, NOT the project's own repo.
+Add a private note about a project. Notes are stored in your tracker repo, NOT the project's own repo.
 
 **Steps:**
 1. Generate slug from first few words of text
@@ -412,12 +422,13 @@ Mark a task as done.
 Commit and push any pending changes.
 
 **Steps:**
-1. `cd ~/projectz`
-2. `git add -A`
-3. `git diff --cached --quiet || git commit -m "projectz: sync"`
-4. `git pull --rebase`
-5. `git push`
-6. Print: "Synced"
+1. Read `tracker_repo` from `~/.projectz.yaml`
+2. `cd <tracker_repo>`
+3. `git add -A`
+4. `git diff --cached --quiet || git commit -m "projectz: sync"`
+5. `git pull --rebase`
+6. `git push`
+7. Print: "Synced"
 
 ---
 
@@ -425,30 +436,36 @@ Commit and push any pending changes.
 
 If you need to reinitialize on this computer:
 
-1. Delete local config:
+1. Check your current tracker path:
+   ```bash
+   grep tracker_repo ~/.projectz.yaml
+   ```
+
+2. Delete local config:
    ```bash
    rm ~/.projectz.yaml
    ```
 
-2. (Optional) Remove local clone if switching to a different repo:
+3. (Optional) Remove local clone if switching to a different repo:
    ```bash
-   rm -rf ~/projectz
+   rm -rf <tracker_repo_path>
    ```
 
-3. Re-initialize:
+4. Re-initialize:
    ```
    /projectz init <repo-url>
    ```
 
-This only affects this computer. Your projectz repo and other computers are unchanged.
+This only affects this computer. Your tracker repo and other computers are unchanged.
 
 ---
 
 ## Important Notes
 
-- **Notes are private** - Stored in projectz repo, not in project repos. Use for internal thoughts, research, decisions.
+- **Notes are private** - Stored in tracker repo, not in project repos. Use for internal thoughts, research, decisions.
+- **Tracker repo can be named anything** - `my-projects`, `tracker`, `work-log` - the path is stored in `~/.projectz.yaml`
 - **Git for sync** - Just `git pull`/`push`. No special sync logic.
 - **Human-readable** - All files are markdown, viewable on GitHub.
-- **Multi-computer** - Same projectz repo, different computers register themselves.
+- **Multi-computer** - Same tracker repo, different computers register themselves.
 - **Role detection** - Automatically determines your relationship to each project.
 - **Status inference** - Suggests status based on commit activity, but asks before changing.
