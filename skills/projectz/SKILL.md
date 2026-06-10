@@ -1,9 +1,11 @@
 ---
 name: projectz
-description: Git-based markdown project tracker. Use when the user wants to track projects, manage tasks across computers, or asks about "projectz", "my projects", "project status", "add task", "sync projects".
-when_to_use: User mentions tracking projects, managing tasks, project status, syncing work across machines, or explicitly invokes /projectz
-argument-hint: "[command] [args]"
-arguments: command project title
+description: Git-based markdown project tracker for managing personal projects across multiple computers. Use when tracking projects, managing tasks, checking project status, adding tasks, syncing work across machines, or when user mentions "my projects", "project tracker", or "projectz".
+license: MIT
+compatibility: Requires git and a GitHub account for syncing
+metadata:
+  author: csabakecskemeti
+  version: "0.1.0"
 ---
 
 # /projectz - Git-based Project Tracker
