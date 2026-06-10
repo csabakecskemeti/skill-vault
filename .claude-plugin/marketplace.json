@@ -1,0 +1,25 @@
+{
+  "$schema": "https://code.claude.com/schemas/marketplace.json",
+  "name": "skill-vault",
+  "description": "A collection of reusable Claude Code skills",
+  "version": "0.2.0",
+  "owner": {
+    "name": "csabakecskemeti"
+  },
+  "plugins": [
+    {
+      "name": "projectz",
+      "displayName": "Projectz",
+      "source": "./skills/projectz",
+      "description": "Git-based markdown project tracker for managing personal projects across multiple computers",
+      "version": "0.2.0",
+      "author": {
+        "name": "csabakecskemeti"
+      },
+      "license": "MIT",
+      "category": "productivity",
+      "tags": ["projects", "tasks", "markdown", "git", "tracker"],
+      "keywords": ["project tracker", "task management", "multi-computer", "projectz"]
+    }
+  ]
+}
