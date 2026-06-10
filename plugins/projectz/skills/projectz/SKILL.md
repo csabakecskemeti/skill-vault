@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires git and a GitHub account for syncing
 metadata:
   author: csabakecskemeti
-  version: "0.5.0"
+  version: "0.5.1"
 ---
 
 # /projectz - Git-based Project Tracker
@@ -27,7 +27,7 @@ Manage personal projects across multiple computers using Git and Markdown.
 | `/projectz link <project> <local-path>` | Link project to local checkout on this computer |
 | `/projectz sync` | Pull latest, commit changes, push |
 | `/projectz discover [path]` | Scan for local git repos, create/update projects |
-| `/projectz scan` | Re-scan all projects and auto-infer status from activity |
+| `/projectz scan` | Re-scan all projects: update status, detect role (owner/fork/contributor/user), count commits |
 
 ## Project Statuses
 
@@ -393,27 +393,71 @@ registered: 2024-01-15
 6. Report findings with suggested actions
 
 ### `/projectz scan`
-1. Read all projects from `projects/`
-2. For each project with a local path on this computer:
-   - `cd` to local path
-   - Get last commit: `git log -1 --format=%ci`
-   - Get last file change: `find . -type f -not -path "./.git/*" -exec stat -f "%m" {} \; | sort -rn | head -1`
-   - Compare with current status
-   - Detect role using Role Detection Logic (see above)
-   - Count commits: `my_commits` and `total_commits`
-3. Generate status change suggestions:
-   - "project-x: active → backlog (no commits in 45 days)"
-   - "project-y: backlog → active (commit 2 days ago)"
-4. Generate role detection results:
-   - "project-x: role=owner (your URL, your first commit)"
-   - "project-y: role=fork (your URL, has upstream remote)"
-   - "project-z: role=contributor (not your URL, 15 commits by you)"
-5. Update MAP.md frontmatter:
-   - `last_commit`, `last_activity` (activity dates)
-   - `role` (owner/fork/contributor/user)
-   - `my_commits`, `total_commits` (commit counts)
-6. Ask user to confirm status changes before applying
-7. Report summary with both status and role updates
+
+**This command exists and must be followed exactly.**
+
+For each project in `~/projectz/projects/*/MAP.md`:
+
+1. **Read config**: Load `~/.projectz.yaml` to get `github_username` and `git_email`
+
+2. **Find local path**: Check `~/projectz/computers/<computer-id>.md` for local path of this project
+
+3. **If local path exists, cd there and collect**:
+   ```bash
+   # Last commit date
+   LAST_COMMIT=$(git log -1 --format=%Y-%m-%d 2>/dev/null || echo "")
+
+   # Days since last commit
+   DAYS_AGO=$(git log -1 --format=%ct 2>/dev/null | xargs -I {} bash -c 'echo $(( ($(date +%s) - {}) / 86400 ))')
+
+   # Commit counts
+   MY_EMAIL=$(git config user.email)
+   MY_COMMITS=$(git shortlog -sne --all 2>/dev/null | grep -i "$MY_EMAIL" | awk '{sum+=$1} END {print sum+0}')
+   TOTAL_COMMITS=$(git rev-list --all --count 2>/dev/null || echo 0)
+
+   # Role detection
+   MY_USERNAME=$(cat ~/.projectz.yaml | grep github_username | cut -d: -f2 | tr -d ' ')
+   ORIGIN=$(git remote get-url origin 2>/dev/null)
+   IS_MINE=$(echo "$ORIGIN" | grep -qi "$MY_USERNAME" && echo "yes" || echo "no")
+   HAS_UPSTREAM=$(git remote | grep -q upstream && echo "yes" || echo "no")
+   FIRST_AUTHOR=$(git log --reverse --format=%ae 2>/dev/null | head -1)
+
+   if [ "$IS_MINE" = "yes" ]; then
+       if [ "$HAS_UPSTREAM" = "yes" ] || [ "$FIRST_AUTHOR" != "$MY_EMAIL" ]; then
+           ROLE="fork"
+       else
+           ROLE="owner"
+       fi
+   else
+       if [ "$MY_COMMITS" -gt 0 ]; then
+           ROLE="contributor"
+       else
+           ROLE="user"
+       fi
+   fi
+   ```
+
+4. **Infer status from days_ago**:
+   - `< 14 days` → `active`
+   - `14-90 days` → `backlog`
+   - `> 90 days` → suggest `archived` (don't auto-set)
+   - Never change `done` or `review` automatically
+
+5. **Update MAP.md frontmatter** with:
+   - `last_commit: YYYY-MM-DD`
+   - `role: owner|fork|contributor|user`
+   - `my_commits: N`
+   - `total_commits: N`
+   - `status: active|backlog` (if changed, ask user first)
+
+6. **Report summary**:
+   ```
+   project-x: role=owner, status=active, 47/52 commits
+   project-y: role=fork, status=backlog (45 days), 12/89 commits
+   project-z: role=contributor, status=active, 5/200 commits
+   ```
+
+7. **Commit and push** changes to projectz repo
 
 ### Activity detection commands
 
