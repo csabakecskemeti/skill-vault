@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires git and a GitHub account for syncing
 metadata:
   author: csabakecskemeti
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # /projectz - Git-based Project Tracker
@@ -56,6 +56,62 @@ else:
 Never auto-change `done` or `review` - those are manually set.
 Always report inferred changes and let user confirm before updating.
 
+## Project Roles
+
+Track your relationship with each project:
+
+| Role | Description | Detection |
+|------|-------------|-----------|
+| `owner` | You created it, it's yours | Remote URL has your username + first commits are yours |
+| `fork` | You forked someone else's repo | Your username in URL + has `upstream` remote or first commits aren't yours |
+| `contributor` | You contribute to others' repo | Not your URL + you have commits in the repo |
+| `user` | Just cloned to use it | Not your URL + no commits from you |
+
+### Role Detection Logic
+
+```bash
+# Get configured git username/email
+MY_EMAIL=$(git config user.email)
+MY_USERNAME=$(cat ~/.projectz.yaml | grep github_username | cut -d: -f2 | tr -d ' ')
+
+# Check if remote URL contains your username
+ORIGIN=$(git remote get-url origin 2>/dev/null)
+IS_MINE=$(echo "$ORIGIN" | grep -qi "$MY_USERNAME" && echo "yes" || echo "no")
+
+# Check for upstream remote (indicates fork)
+HAS_UPSTREAM=$(git remote | grep -q upstream && echo "yes" || echo "no")
+
+# Get first commit author
+FIRST_AUTHOR=$(git log --reverse --format="%ae" 2>/dev/null | head -1)
+
+# Count commits by me vs total
+MY_COMMITS=$(git shortlog -sne --all | grep -i "$MY_EMAIL" | awk '{sum+=$1} END {print sum+0}')
+TOTAL_COMMITS=$(git rev-list --all --count 2>/dev/null || echo 0)
+
+# Determine role
+if [ "$IS_MINE" = "yes" ]; then
+    if [ "$HAS_UPSTREAM" = "yes" ] || [ "$FIRST_AUTHOR" != "$MY_EMAIL" ]; then
+        ROLE="fork"
+    else
+        ROLE="owner"
+    fi
+else
+    if [ "$MY_COMMITS" -gt 0 ]; then
+        ROLE="contributor"
+    else
+        ROLE="user"
+    fi
+fi
+```
+
+### Role-based Filtering
+
+When showing projects, can filter by role:
+- `/projectz` - show all
+- `/projectz --mine` - show only `owner` + `fork`
+- `/projectz --contributing` - show `contributor`
+- `/projectz --using` - show `user`
+
 ---
 
 ## Configuration
@@ -66,6 +122,8 @@ Always report inferred changes and let user confirm before updating.
 computer_id: a1b2c3d4e5f6    # MAC address (no colons)
 computer_name: macbook-pro    # Friendly name
 projectz_repo: ~/projectz     # Local clone path
+github_username: csabakecskemeti  # For role detection
+git_email: user@example.com       # For commit attribution detection
 ```
 
 ### Getting Computer ID (MAC Address)
@@ -118,13 +176,17 @@ projectz/
 |-------|----------|-------------|
 | `slug` | yes | URL-friendly project identifier |
 | `status` | yes | draft, active, backlog, review, done, archived |
+| `role` | no | owner, fork, contributor, user (auto-detected) |
 | `has_git` | no | true/false - is project under version control |
 | `repo` | no | Remote repository URL |
+| `upstream` | no | Original repo URL if this is a fork |
 | `tags` | no | List of tags for categorization |
 | `created` | yes | Creation date (YYYY-MM-DD) |
 | `updated` | yes | Last update date (YYYY-MM-DD) |
 | `last_commit` | no | Date of last git commit (auto-updated by scan) |
 | `last_activity` | no | Date of last file modification (auto-updated by scan) |
+| `my_commits` | no | Number of commits by you (auto-updated by scan) |
+| `total_commits` | no | Total commits in repo (auto-updated by scan) |
 
 ### MAP.md Sections
 
@@ -158,18 +220,22 @@ See [MAP.md](./MAP.md) for status, tasks, and related documents.
 ---
 slug: my-project
 status: active
+role: owner
 repo: https://github.com/user/my-project
 has_git: true
 tags: [python, web]
 created: 2024-01-15
 updated: 2024-01-20
+last_commit: 2024-01-20
+my_commits: 47
+total_commits: 52
 ---
 
 # My Project - Map
 
 ## Status
 
-Current: **active**
+Current: **active** | Role: **owner**
 
 ## Quick Links
 
@@ -262,10 +328,17 @@ registered: 2024-01-15
 ### `/projectz init <repo-url>`
 1. Clone the repo to `~/projectz` (or ask user for location)
 2. Get MAC address from primary network interface
-3. Create `~/.projectz.yaml` with computer_id (MAC), name, repo path
-4. Create `computers/<mac-id>.md` with all local MAC addresses
-5. Commit and push the computer registration
-6. Confirm setup complete
+3. Extract GitHub username from repo URL (e.g., `csabakecskemeti` from `github.com/csabakecskemeti/projectz`)
+4. Get git email from `git config user.email`
+5. Create `~/.projectz.yaml` with:
+   - `computer_id`: MAC address
+   - `computer_name`: hostname
+   - `projectz_repo`: local path
+   - `github_username`: extracted from repo URL
+   - `git_email`: from git config
+6. Create `computers/<mac-id>.md` with all local MAC addresses
+7. Commit and push the computer registration
+8. Confirm setup complete
 
 ### `/projectz new <name>`
 1. Generate slug from name (lowercase, hyphens)
