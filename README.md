@@ -8,7 +8,7 @@ A Claude Code plugin containing reusable skills.
 
 ```
 /plugin marketplace add csabakecskemeti/skill-vault
-/plugin install skill-vault
+/plugin install projectz@skill-vault
 ```
 
 ### Manual installation
