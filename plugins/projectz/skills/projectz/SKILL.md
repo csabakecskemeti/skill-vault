@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires git and GitHub account
 metadata:
   author: csabakecskemeti
-  version: "0.8.0"
+  version: "0.9.0"
 ---
 
 # /projectz - Git-based Project Tracker
@@ -158,12 +158,12 @@ URL-friendly identifier derived from project name: lowercase, hyphens instead of
 
 ### Hierarchy
 
-Both projects and goals support simple parent-child relationships:
+Both projects and goals support parent-child relationships with **multiple parents**:
 
-- **Project hierarchy**: A project can have a `parent` project (e.g., `spark-monitor-gui` is a child of `quasar-deck`)
-- **Goal hierarchy**: A goal can have a `parent` goal (e.g., `build-llm-infrastructure` under `build-ai-platform`)
+- **Project hierarchy**: A project can have multiple `parents` (e.g., a shared library used by several projects)
+- **Goal hierarchy**: A goal can serve multiple parent goals (e.g., `local-llm-self-sufficiency` supports both `ai-powered-income` AND `unified-multi-machine-workflow`)
 
-This is kept simple - just a `parent` field in the frontmatter. No deep nesting required.
+Use `parents` as a list in frontmatter. This creates a DAG (directed acyclic graph), not a strict tree.
 
 ---
 
@@ -309,7 +309,7 @@ updated: 2024-01-20
 last_commit: 2024-01-20
 my_commits: 47
 total_commits: 52
-parent:  # optional: parent project slug (for subprojects)
+parents: []  # optional: list of parent project slugs (for subprojects)
 
 # Dependencies
 dependencies:
@@ -376,7 +376,7 @@ status: active
 priority: high
 created: 2024-01-15
 target_date: 2024-12-31
-parent:  # optional: parent goal slug (for sub-goals)
+parents: []  # optional: list of parent goal slugs (can serve multiple goals)
 ---
 
 # Build AI Platform
@@ -1130,19 +1130,23 @@ financial-independence [active]
 
 **For projects:** Edit the project's MAP.md frontmatter:
 ```yaml
-parent: quasar-deck  # this project is a child of quasar-deck
+parents:
+  - quasar-deck      # this project is a child of quasar-deck
+  - monitoring-suite # and also part of the monitoring suite
 ```
 
 **For goals:** Edit the goal file frontmatter:
 ```yaml
-parent: build-ai-platform  # this goal is a sub-goal
+parents:
+  - ai-powered-income              # serves the income goal
+  - unified-multi-machine-workflow # AND the multi-machine goal
 ```
 
 Or use natural language:
 - "Make spark-monitor-gui a subproject of quasar-deck"
-- "Set build-llm-infrastructure as a sub-goal of build-ai-platform"
+- "Add local-llm-self-sufficiency as a sub-goal of both ai-powered-income and unified-multi-machine-workflow"
 
-The agent will update the appropriate frontmatter.
+The agent will update the appropriate frontmatter. Multiple parents create a DAG structure - one item can serve multiple purposes.
 
 ---
 
