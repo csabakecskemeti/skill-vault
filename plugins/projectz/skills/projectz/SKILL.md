@@ -1,11 +1,11 @@
 ---
 name: projectz
-description: Git-based project tracker and knowledge base. Use when user mentions "my projects", "project tracker", "projectz", or wants to track projects, add notes, manage tasks, or sync work across machines.
+description: Git-based project tracker and knowledge base. Use when user mentions "my projects", "project tracker", "projectz", or wants to track projects, add notes, manage tasks, brainstorm ideas, track goals, or sync work across machines.
 license: MIT
 compatibility: Requires git and GitHub account
 metadata:
   author: csabakecskemeti
-  version: "0.7.0"
+  version: "0.8.0"
 ---
 
 # /projectz - Git-based Project Tracker
@@ -17,23 +17,61 @@ A centralized knowledge base for tracking personal projects across multiple comp
 - Detect your role (owner, fork, contributor, user)
 - Store private notes and internal docs (not in project repos)
 - Rich project descriptions for context when switching machines/agents
+- **Dependencies** - Track hard (code) and soft (workflow) dependencies between projects
+- **Goals** - Define high-level goals and link projects to them
+- **Ideation** - Brainstorm and develop ideas before committing to projects
 - Cross-platform helper scripts for reliable scanning
-- Sync everything via Git
+- Bidirectional sync via Git
 
 ---
 
 ## Commands
+
+### Core Commands
 
 | Command | Description |
 |---------|-------------|
 | `/projectz` | Show summary of all projects (fast, read-only) |
 | `/projectz init <repo-url> [path]` | First-time setup: clone repo, register this computer, install skill |
 | `/projectz scan` | Discover local repos, update status/role for all projects |
+| `/projectz sync` | Bidirectional sync: pull remote changes, push local changes |
+| `/projectz tree [projects\|goals]` | Show hierarchy tree (default: both) |
+
+### Project Management
+
+| Command | Description |
+|---------|-------------|
 | `/projectz note <project> <text>` | Add a private note about a project |
 | `/projectz doc <project> <title>` | Create/edit internal documentation for a project |
 | `/projectz task <project> <title>` | Add a task to a project |
 | `/projectz done <project> <task-id>` | Mark a task as done |
-| `/projectz sync` | Commit and push changes to tracker repo |
+
+### Dependencies
+
+| Command | Description |
+|---------|-------------|
+| `/projectz depends <project> <dependency> [hard\|soft] <reason>` | Add a dependency |
+| `/projectz deps <project>` | Show dependencies for a project |
+| `/projectz blocked` | Show projects blocked by unfinished dependencies |
+| `/projectz depgraph` | Show visual dependency graph |
+
+### Goals
+
+| Command | Description |
+|---------|-------------|
+| `/projectz goal <name>` | Create or view a goal |
+| `/projectz goals` | List all goals with progress |
+| `/projectz link <project> <goal> <contribution>` | Link a project to a goal |
+| `/projectz unlink <project> <goal>` | Remove project-goal link |
+
+### Ideation
+
+| Command | Description |
+|---------|-------------|
+| `/projectz ideate [name]` | Start brainstorming a new idea (interactive if no name) |
+| `/projectz ideas` | List all ideas by status |
+| `/projectz idea <slug>` | View or continue developing an idea |
+| `/projectz convert <idea-slug>` | Convert a ready idea into a project |
 
 ---
 
@@ -81,6 +119,7 @@ URL-friendly identifier derived from project name: lowercase, hyphens instead of
 | `review` | In review/testing | Manual only |
 | `done` | Completed | Manual only |
 | `archived` | No longer maintained | Last commit > 90 days (suggest, don't auto-set) |
+| `blocked` | Waiting on dependency | Has unmet hard dependency |
 
 ### Roles
 
@@ -90,6 +129,41 @@ URL-friendly identifier derived from project name: lowercase, hyphens instead of
 | `fork` | You forked it | Your username in URL + has `upstream` remote OR first commit not yours |
 | `contributor` | You contribute | Not your URL + you have commits |
 | `user` | Just using it | Not your URL + no commits from you |
+
+### Dependency Types
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `hard` | Code/technical dependency | Project X imports a library from Project Y |
+| `soft` | Workflow/capacity dependency | Need to finish framework before scaling up |
+
+### Idea Statuses
+
+| Status | Description |
+|--------|-------------|
+| `brainstorming` | Initial exploration, collecting thoughts |
+| `researching` | Actively investigating feasibility |
+| `ready` | Validated and ready to become a project |
+| `rejected` | Decided not to pursue |
+| `converted` | Turned into a project |
+
+### Goal Statuses
+
+| Status | Description |
+|--------|-------------|
+| `active` | Currently pursuing |
+| `achieved` | Goal completed |
+| `paused` | Temporarily on hold |
+| `abandoned` | No longer pursuing |
+
+### Hierarchy
+
+Both projects and goals support simple parent-child relationships:
+
+- **Project hierarchy**: A project can have a `parent` project (e.g., `spark-monitor-gui` is a child of `quasar-deck`)
+- **Goal hierarchy**: A goal can have a `parent` goal (e.g., `build-llm-infrastructure` under `build-ai-platform`)
+
+This is kept simple - just a `parent` field in the frontmatter. No deep nesting required.
 
 ---
 
@@ -120,10 +194,14 @@ git_email: you@example.com
 │   └── analyze-repo.sh
 ├── computers/
 │   └── <mac-id>.md
+├── goals/                   # High-level objectives
+│   └── <goal-slug>.md
+├── ideas/                   # Ideas being developed
+│   └── <idea-slug>.md
 └── projects/
     └── <slug>/
         ├── README.md        # Rich project description
-        ├── MAP.md           # Status, role, metadata
+        ├── MAP.md           # Status, role, metadata, dependencies, goals
         ├── docs/            # Internal documentation (NOT in project repo)
         │   └── <topic>.md
         ├── tasks/
@@ -231,6 +309,23 @@ updated: 2024-01-20
 last_commit: 2024-01-20
 my_commits: 47
 total_commits: 52
+parent:  # optional: parent project slug (for subprojects)
+
+# Dependencies
+dependencies:
+  hard:
+    - project: shared-lib
+      reason: "Uses utility functions from shared-lib"
+  soft:
+    - project: agent-framework
+      reason: "Need this to automate testing"
+
+# Goals this project contributes to
+goals:
+  - goal: build-ai-platform
+    contribution: "Provides the API layer for AI services"
+  - goal: learn-rust
+    contribution: "Performance-critical modules written in Rust"
 ---
 
 # my-project
@@ -249,6 +344,19 @@ total_commits: 52
 - Branch: main
 - Local: ~/code/my-project
 
+## Dependencies
+
+### Hard (Code)
+- **shared-lib**: Uses utility functions from shared-lib
+
+### Soft (Workflow)
+- **agent-framework**: Need this to automate testing
+
+## Goals
+
+- **build-ai-platform**: Provides the API layer for AI services
+- **learn-rust**: Performance-critical modules written in Rust
+
 ## Recent Notes
 
 - [2024-01-20 - Auth research](./notes/2024-01-20-auth-research.md)
@@ -257,6 +365,115 @@ total_commits: 52
 
 - [Architecture](./docs/architecture.md)
 - [Deployment Guide](./docs/deployment.md)
+```
+
+### Goal File: `goals/<goal-slug>.md`
+
+```markdown
+---
+slug: build-ai-platform
+status: active
+priority: high
+created: 2024-01-15
+target_date: 2024-12-31
+parent:  # optional: parent goal slug (for sub-goals)
+---
+
+# Build AI Platform
+
+## Description
+
+Create a comprehensive AI platform that can run multiple models, handle inference requests, and provide a unified API.
+
+## Why It Matters
+
+- Consolidate AI experiments into production-ready infrastructure
+- Enable rapid prototyping of new AI applications
+- Reduce dependency on external AI services
+
+## Success Criteria
+
+- [ ] Unified API for multiple model backends
+- [ ] Auto-scaling based on load
+- [ ] Cost tracking per model/request
+- [ ] Self-hosted on own hardware
+
+## Contributing Projects
+
+| Project | Status | Contribution |
+|---------|--------|--------------|
+| llmaas | active | Core inference server |
+| agent-hub | active | Inter-agent communication |
+| quasar-deck | active | Monitoring dashboard |
+
+## Progress Notes
+
+- 2024-01-15: Started with llmaas as foundation
+- 2024-01-20: Added agent-hub for multi-agent coordination
+```
+
+### Idea File: `ideas/<idea-slug>.md`
+
+```markdown
+---
+slug: voice-controlled-home-automation
+status: brainstorming
+created: 2024-01-15
+updated: 2024-01-20
+tags: [iot, voice, automation]
+converted_to:  # filled when converted to project
+---
+
+# Voice-Controlled Home Automation
+
+## The Idea
+
+A fully local (no cloud) voice assistant that controls home automation without sending any data to external services.
+
+## Problem It Solves
+
+- Privacy concerns with Alexa/Google Home
+- Latency with cloud-based voice processing
+- Dependency on internet connectivity
+- Limited customization of commercial solutions
+
+## Brainstorm Notes
+
+- Could use Whisper for local speech-to-text
+- Home Assistant for device control
+- Need to research wake word detection (Porcupine? OpenWakeWord?)
+- Hardware: Raspberry Pi with ReSpeaker mic array?
+
+## Research
+
+- [Whisper local deployment](https://...)
+- [Home Assistant REST API](https://...)
+- [OpenWakeWord project](https://...)
+
+## Viability Assessment
+
+### Pros
+- Full privacy
+- No subscription costs
+- Highly customizable
+
+### Cons
+- Significant setup effort
+- May need dedicated hardware
+- Voice recognition quality vs cloud
+
+### Effort Estimate
+- Initial prototype: 2-3 weekends
+- Production-ready: 1-2 months part-time
+
+## Decision
+
+**Status: researching**
+
+Next steps:
+1. Test Whisper latency on Raspberry Pi
+2. Evaluate wake word detection options
+3. Prototype with simple commands
 ```
 
 ### Internal Docs: `docs/<topic>.md`
@@ -297,6 +514,7 @@ title: Set up project
 status: active
 priority: high
 created: 2024-01-15
+blocked_by:  # optional: task ID or project slug
 ---
 
 # Set up project
@@ -373,14 +591,19 @@ Show summary of all projects. Fast, read-only.
 
 4. Display table:
    ```
-   | Project    | Status  | Role   | Last Commit | Local |
-   |------------|---------|--------|-------------|-------|
-   | my-project | active  | owner  | 2 days ago  | yes   |
-   | other-proj | backlog | fork   | 45 days     | yes   |
-   | team-proj  | active  | contrib| 1 day ago   | no    |
+   | Project    | Status  | Role   | Last Commit | Local | Blocked |
+   |------------|---------|--------|-------------|-------|---------|
+   | my-project | active  | owner  | 2 days ago  | yes   |         |
+   | other-proj | blocked | owner  | 5 days      | yes   | shared-lib |
+   | team-proj  | active  | contrib| 1 day ago   | no    |         |
    ```
 
-5. If no projects linked to this computer:
+5. Show goal progress summary if goals exist:
+   ```
+   Goals: build-ai-platform (3/5 projects active) | learn-rust (1/2 done)
+   ```
+
+6. If no projects linked to this computer:
    - Print: "No local projects found. Run `/projectz scan` to discover repos."
 
 ### `/projectz init <repo-url> [path]`
@@ -405,13 +628,14 @@ First-time setup on a new computer.
    ```
 7. Copy helper scripts to `<tracker_repo>/scripts/` if not present
 8. Create `computers/<mac>.md` if not exists
-9. **Install skill for simple `/projectz` command:**
-   ```bash
-   mkdir -p ~/.claude/skills/projectz
-   # Copy this SKILL.md to ~/.claude/skills/projectz/SKILL.md
-   ```
-10. Commit and push
-11. Print: "Setup complete. Run `/projectz scan` to discover local repos."
+9. Create `goals/` and `ideas/` directories if not present
+10. **Install skill for simple `/projectz` command:**
+    ```bash
+    mkdir -p ~/.claude/skills/projectz
+    # Copy this SKILL.md to ~/.claude/skills/projectz/SKILL.md
+    ```
+11. Commit and push
+12. Print: "Setup complete. Run `/projectz scan` to discover local repos."
     Print: "Skill installed at ~/.claude/skills/projectz/ - use `/projectz` directly."
 
 ### `/projectz scan`
@@ -447,24 +671,54 @@ Discover local repos and update all project metadata. Use helper scripts for rel
 7. **Update computer file:**
    - Add/update local paths in `computers/<mac>.md`
 
-8. **Report changes:**
+8. **Check dependencies:**
+   - For each project with hard dependencies, check if dependency is `done`
+   - If not, mark project as `blocked` (or warn)
+
+9. **Report changes:**
    ```
    Updated: my-project (active, owner, 47/52 commits)
    Updated: other-proj (backlog, fork, 12/89 commits)
    New: new-project (active, owner, 15/15 commits)
+   Blocked: api-service (waiting on: shared-lib)
    Skipped: third-party-lib (role=user, not tracking)
    ```
 
-9. **Ask before status changes:**
-   - If status would change (e.g., active→backlog), ask user to confirm
-   - Never auto-change `done` or `review`
+10. **Ask before status changes:**
+    - If status would change (e.g., active→backlog), ask user to confirm
+    - Never auto-change `done` or `review`
 
-10. **Commit and push:**
+11. **Commit and push:**
     ```bash
     git add -A
     git commit -m "projectz: scan from <computer-name>"
     git push
     ```
+
+### `/projectz sync`
+
+Bidirectional sync: pull remote changes, then push local changes.
+
+**Steps:**
+1. Read `tracker_repo` from `~/.projectz.yaml`
+2. `cd <tracker_repo>`
+3. **Pull first** (get updates from other computers):
+   ```bash
+   git fetch origin
+   git pull --rebase
+   ```
+4. **Report incoming changes:**
+   - Show which files were updated
+   - Highlight new projects, updated tasks, new notes from other computers
+5. **Push local changes:**
+   ```bash
+   git add -A
+   git diff --cached --quiet || git commit -m "projectz: sync from <computer-name>"
+   git push
+   ```
+6. **Report outgoing changes:**
+   - Show what was pushed
+7. Print: "Synced. Pulled X changes, pushed Y changes."
 
 ### `/projectz note <project> <text>`
 
@@ -538,18 +792,357 @@ Mark a task as done.
 2. Update frontmatter: `status: done`, add `completed: YYYY-MM-DD`
 3. Print: "Task <id> marked done"
 
-### `/projectz sync`
+---
 
-Commit and push any pending changes.
+## Dependency Commands
+
+### `/projectz depends <project> <dependency> [hard|soft] <reason>`
+
+Add a dependency between projects.
 
 **Steps:**
-1. Read `tracker_repo` from `~/.projectz.yaml`
-2. `cd <tracker_repo>`
-3. `git add -A`
-4. `git diff --cached --quiet || git commit -m "projectz: sync"`
-5. `git pull --rebase`
-6. `git push`
-7. Print: "Synced"
+1. Validate both projects exist
+2. Default to `soft` if type not specified
+3. Update `<project>/MAP.md` frontmatter:
+   ```yaml
+   dependencies:
+     hard:
+       - project: <dependency>
+         reason: "<reason>"
+   ```
+4. Update the Dependencies section in MAP.md body
+5. If hard dependency and `<dependency>` is not `done`, set project status to `blocked`
+6. Print: "Added <type> dependency: <project> → <dependency>"
+
+### `/projectz deps <project>`
+
+Show dependencies for a project.
+
+**Output:**
+```
+Dependencies for my-project:
+
+HARD (code dependencies):
+  → shared-lib (status: active) - Uses utility functions
+  → auth-service (status: done) ✓ - Authentication module
+
+SOFT (workflow dependencies):
+  → agent-framework (status: backlog) - Need this to automate testing
+
+Depended on by:
+  ← api-gateway (hard) - Imports API client
+  ← frontend (soft) - Shares types
+```
+
+### `/projectz blocked`
+
+Show all projects blocked by unfinished dependencies.
+
+**Output:**
+```
+Blocked Projects:
+
+my-project
+  Waiting on: shared-lib (active, 60% done)
+  Reason: Uses utility functions from shared-lib
+
+api-gateway
+  Waiting on: my-project (blocked)
+  Reason: Imports API client
+  Note: Cascading block - my-project is also blocked
+
+Soft blocks (not critical):
+  frontend → design-system (backlog) - Waiting for component library
+```
+
+### `/projectz depgraph`
+
+Show visual dependency graph.
+
+**Output:**
+```
+Dependency Graph:
+
+  auth-service [done] ✓
+       │
+       ▼
+  shared-lib [active]
+       │
+       ├──────────────┐
+       ▼              ▼
+  my-project      data-pipeline
+  [blocked]         [active]
+       │
+       ▼
+  api-gateway [blocked]
+
+Legend: [done]✓  [active]  [blocked]⚠  [backlog]○
+```
+
+---
+
+## Goal Commands
+
+### `/projectz goal <name>`
+
+Create or view a goal.
+
+**If goal exists:** Display goal details with contributing projects and progress.
+
+**If new goal:**
+1. Generate slug from name
+2. Create `goals/<slug>.md`:
+   ```markdown
+   ---
+   slug: <slug>
+   status: active
+   priority: medium
+   created: YYYY-MM-DD
+   target_date:
+   ---
+
+   # <name>
+
+   ## Description
+
+   [What does achieving this goal mean?]
+
+   ## Why It Matters
+
+   [Motivation and impact]
+
+   ## Success Criteria
+
+   - [ ] Criterion 1
+   - [ ] Criterion 2
+
+   ## Contributing Projects
+
+   | Project | Status | Contribution |
+   |---------|--------|--------------|
+   ```
+3. Open for editing
+4. Print: "Goal created: <name>"
+
+### `/projectz goals`
+
+List all goals with progress.
+
+**Output:**
+```
+Goals:
+
+HIGH PRIORITY:
+  build-ai-platform [active]
+    Progress: 3/5 projects active, 1 done
+    Target: 2024-12-31 (6 months remaining)
+    Next: Complete llmaas inference endpoints
+
+  financial-independence [active]
+    Progress: 2/4 projects active
+    No target date
+
+MEDIUM PRIORITY:
+  learn-rust [active]
+    Progress: 1/2 projects done
+
+ACHIEVED:
+  ✓ setup-home-lab (completed 2024-01-15)
+```
+
+### `/projectz link <project> <goal> <contribution>`
+
+Link a project to a goal with explanation of how it contributes.
+
+**Steps:**
+1. Validate project and goal exist
+2. Update project's MAP.md:
+   ```yaml
+   goals:
+     - goal: <goal>
+       contribution: "<contribution>"
+   ```
+3. Update goal file's "Contributing Projects" table
+4. Print: "Linked <project> to goal <goal>"
+
+### `/projectz unlink <project> <goal>`
+
+Remove a project-goal link.
+
+---
+
+## Ideation Commands
+
+### `/projectz ideate [name]`
+
+Start brainstorming a new idea.
+
+**Interactive mode (no name):**
+1. Ask: "What's the idea about? (one sentence)"
+2. Ask: "What problem does it solve?"
+3. Generate slug from response
+4. Create idea file with responses
+5. Ask: "Want to add more details now?"
+
+**Direct mode (with name):**
+1. Generate slug from name
+2. Create `ideas/<slug>.md`:
+   ```markdown
+   ---
+   slug: <slug>
+   status: brainstorming
+   created: YYYY-MM-DD
+   updated: YYYY-MM-DD
+   tags: []
+   converted_to:
+   ---
+
+   # <name>
+
+   ## The Idea
+
+   [Core concept]
+
+   ## Problem It Solves
+
+   [Why this matters]
+
+   ## Brainstorm Notes
+
+   -
+
+   ## Research
+
+   -
+
+   ## Viability Assessment
+
+   ### Pros
+   -
+
+   ### Cons
+   -
+
+   ### Effort Estimate
+
+   [Time/resources needed]
+
+   ## Decision
+
+   **Status: brainstorming**
+
+   Next steps:
+   1.
+   ```
+3. Open for editing
+4. Print: "Idea created: <name>. Use `/projectz idea <slug>` to continue developing it."
+
+### `/projectz ideas`
+
+List all ideas by status.
+
+**Output:**
+```
+Ideas:
+
+READY TO CONVERT:
+  voice-home-automation - Voice-controlled home automation
+    Last updated: 2024-01-20
+    Tags: iot, voice
+
+RESEARCHING:
+  distributed-backup - P2P backup system
+    Last updated: 2024-01-18
+
+BRAINSTORMING:
+  ai-art-generator - Generate art from descriptions
+    Created: 2024-01-15
+
+REJECTED:
+  crypto-trading-bot - Automated trading (rejected: too risky)
+
+To convert a ready idea: /projectz convert <slug>
+```
+
+### `/projectz idea <slug>`
+
+View or continue developing an idea.
+
+**Output:** Display full idea content, then ask:
+- "Add a brainstorm note?"
+- "Add research link?"
+- "Update status?"
+- "Ready to convert to project?"
+
+### `/projectz convert <idea-slug>`
+
+Convert a ready idea into a full project.
+
+**Steps:**
+1. Read idea file
+2. Ask for confirmation: "Convert '<name>' to a project?"
+3. Create project directory and files:
+   - `README.md` - populated from idea content
+   - `MAP.md` - status: draft, populated from idea
+4. Update idea file:
+   ```yaml
+   status: converted
+   converted_to: <project-slug>
+   ```
+5. Optionally link to goals if idea mentioned them
+6. Print: "Converted idea to project: <project-slug>"
+
+---
+
+## Hierarchy Commands
+
+### `/projectz tree [projects|goals]`
+
+Show hierarchy tree for projects, goals, or both.
+
+**Output (default - both):**
+```
+Project Hierarchy:
+
+quasar-deck [active]
+├── spark-monitor-gui [active]
+└── dgx-dashboard [backlog]
+
+agent-hub [active]
+└── agent-hub-web [draft]
+
+(standalone projects not shown - use /projectz for full list)
+
+Goal Hierarchy:
+
+build-ai-platform [active] ★ HIGH
+├── build-llm-infrastructure [active]
+│   └── optimize-inference [backlog]
+└── create-agent-framework [active]
+
+financial-independence [active]
+└── passive-income-streams [active]
+
+(standalone goals not shown - use /projectz goals for full list)
+```
+
+### Setting Parent Relationships
+
+**For projects:** Edit the project's MAP.md frontmatter:
+```yaml
+parent: quasar-deck  # this project is a child of quasar-deck
+```
+
+**For goals:** Edit the goal file frontmatter:
+```yaml
+parent: build-ai-platform  # this goal is a sub-goal
+```
+
+Or use natural language:
+- "Make spark-monitor-gui a subproject of quasar-deck"
+- "Set build-llm-infrastructure as a sub-goal of build-ai-platform"
+
+The agent will update the appropriate frontmatter.
 
 ---
 
@@ -591,9 +1184,12 @@ This only affects this computer. Your tracker repo and other computers are uncha
 - **Rich READMEs are critical** - Write detailed project descriptions so another agent (or you on another machine) can continue work with full context.
 - **Internal docs stay private** - The `docs/` folder in each project is for documentation that shouldn't go in the project's own repo.
 - **Notes are private** - Stored in tracker repo, not in project repos. Use for internal thoughts, research, decisions.
+- **Dependencies track blockers** - Hard dependencies can block projects; soft dependencies are informational.
+- **Goals provide direction** - Link projects to higher-level goals to see the bigger picture.
+- **Ideate before committing** - Use ideas to brainstorm without creating full project overhead.
 - **Helper scripts** - Use the scripts in `scripts/` for reliable cross-platform scanning.
 - **Tracker repo can be named anything** - `my-projects`, `tracker`, `work-log` - the path is stored in `~/.projectz.yaml`
 - **Simple /projectz command** - After init, the skill is copied to `~/.claude/skills/projectz/` so you can use `/projectz` directly without namespace.
-- **Git for sync** - Just `git pull`/`push`. No special sync logic.
+- **Git for sync** - Bidirectional: pull to get updates, push to share changes.
 - **Human-readable** - All files are markdown, viewable on GitHub.
 - **Multi-computer** - Same tracker repo, different computers register themselves.
