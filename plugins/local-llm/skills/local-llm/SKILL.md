@@ -9,7 +9,7 @@ Call local LLM for routine tasks. Saves Claude tokens.
 
 ## Required Env Vars
 
-Set in `~/.zshrc`:
+Set in `~/.zshenv`:
 ```bash
 export LOCAL_LLM_URL="http://your-host:port"
 export LOCAL_LLM_MODEL="your-model-name"
@@ -18,7 +18,7 @@ export LOCAL_LLM_MODEL="your-model-name"
 ## Execute
 
 ```bash
-curl -s "$LOCAL_LLM_URL/v1/chat/completions" \
+source ~/.zshenv && curl -s "$LOCAL_LLM_URL/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d "{\"model\": \"$LOCAL_LLM_MODEL\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a coding assistant. Output code only.\"}, {\"role\": \"user\", \"content\": \"PROMPT\"}]}" \
   | jq -r '.choices[0].message.content'
