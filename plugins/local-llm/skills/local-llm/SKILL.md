@@ -18,10 +18,7 @@ export LOCAL_LLM_MODEL="your-model-name"
 ## Execute
 
 ```bash
-source ~/.zshenv && curl -s "$LOCAL_LLM_URL/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -d "{\"model\": \"$LOCAL_LLM_MODEL\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a coding assistant. Output code only.\"}, {\"role\": \"user\", \"content\": \"PROMPT\"}]}" \
-  | jq -r '.choices[0].message.content'
+source ~/.zshenv && curl -s "$LOCAL_LLM_URL/v1/chat/completions" -H "Content-Type: application/json" -d '{"model": "'"$LOCAL_LLM_MODEL"'", "messages": [{"role": "system", "content": "You are a coding assistant. Output code only."}, {"role": "user", "content": "PROMPT"}]}' | jq -r '.choices[0].message.content' | sed -n '/^```/,/^```/p'
 ```
 
 ## When to Use
