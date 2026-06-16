@@ -18,7 +18,7 @@ export LOCAL_LLM_MODEL="your-model-name"
 ## Execute
 
 ```bash
-source ~/.zshenv && curl -s "$LOCAL_LLM_URL/v1/chat/completions" -H "Content-Type: application/json" -d '{"model": "'"$LOCAL_LLM_MODEL"'", "messages": [{"role": "system", "content": "You are a coding assistant. Output code only."}, {"role": "user", "content": "PROMPT"}]}' | jq -r '.choices[0].message.content' | sed -n '/^```/,/^```/p'
+source ~/.zshenv && response=$(curl -s "$LOCAL_LLM_URL/v1/chat/completions" -H "Content-Type: application/json" -d '{"model": "'"$LOCAL_LLM_MODEL"'", "messages": [{"role": "system", "content": "You are a coding assistant. Output code only."}, {"role": "user", "content": "PROMPT"}]}') && echo "$response" | jq -r '.choices[0].message.content' | sed -n '/^```/,/^```/p' && tokens=$(echo "$response" | jq -r '.usage.total_tokens // 0') && metrics="$HOME/.claude/local_llm_metrics.json" && if [ -f "$metrics" ]; then prev=$(cat "$metrics"); else prev='{"total_calls":0,"total_tokens":0,"date":""}'; fi && tc=$(echo "$prev" | jq -r '.total_calls // 0') && tt=$(echo "$prev" | jq -r '.total_tokens // 0') && echo "{\"total_calls\":$((tc+1)),\"total_tokens\":$((tt+tokens)),\"date\":\"$(date +%F)\"}" > "$metrics"
 ```
 
 ## When to Use
