@@ -7,18 +7,10 @@ description: Call local LLM for code generation > 50 lines, boilerplate, tests, 
 
 Call local LLM for routine tasks. Saves Claude tokens.
 
-## Required Env Vars
-
-Set in `~/.zshenv`:
-```bash
-export LOCAL_LLM_URL="http://your-host:port"
-export LOCAL_LLM_MODEL="your-model-name"
-```
-
 ## Execute
 
 ```bash
-eval "$(grep '^export LOCAL_LLM' ~/.zshenv)" && response=$(curl -s "$LOCAL_LLM_URL/v1/chat/completions" -H "Content-Type: application/json" -d '{"model": "'"$LOCAL_LLM_MODEL"'", "messages": [{"role": "system", "content": "You are a coding assistant. Output code only."}, {"role": "user", "content": "PROMPT"}]}') && clean=$(echo "$response" | tr -d '\000-\037') && echo "$clean" | jq -r '.choices[0].message.content' | sed -n '/^```/,/^```/p' && tokens=$(echo "$clean" | jq -r '.usage.total_tokens // 0') && metrics="$HOME/.claude/local_llm_metrics.json" && [ -f "$metrics" ] && prev=$(cat "$metrics") || prev='{"total_calls":0,"total_tokens":0}' && tc=$(echo "$prev" | jq -r '.total_calls // 0') && tt=$(echo "$prev" | jq -r '.total_tokens // 0') && echo "{\"total_calls\":$((tc+1)),\"total_tokens\":$((tt+tokens)),\"date\":\"$(date +%F)\"}" > "$metrics"
+/Users/csabakecskemeti/Documents/workspace/skill-vault/plugins/local-llm/local-llm.sh "PROMPT"
 ```
 
 ## When to Use
