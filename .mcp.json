@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "agent-hub": {
+      "command": "python3",
+      "args": ["/Users/csabakecskemeti/Documents/workspace/agent-hub/src/mcp_tools.py"],
+      "env": {
+        "AGENT_HUB_URL": "http://server-opi5p.local:8765"
+      }
+    }
+  }
+}
