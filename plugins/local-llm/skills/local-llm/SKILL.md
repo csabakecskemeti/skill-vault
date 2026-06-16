@@ -11,7 +11,11 @@ Call local LLM for routine tasks. Saves Claude tokens.
 
 ## Execute
 
-!`${CLAUDE_SKILL_DIR}/scripts/local-llm.sh "PROMPT"`
+Run the script with the prompt:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/scripts/local-llm.sh "PROMPT"
+```
 
 ## When to Use
 - Code generation > 50 lines
