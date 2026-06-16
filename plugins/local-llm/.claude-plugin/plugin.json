@@ -2,5 +2,5 @@
   "name": "local-llm",
   "version": "0.1.0",
   "description": "Call local LLM for offloading routine tasks",
-  "skills": ["local-llm"]
+  "skills": ["./skills/local-llm/"]
 }
