@@ -99,11 +99,11 @@ server. Building is slower than pulling — it installs torch and bakes the mode
 a few minutes — but it needs no registry access at all. `/tts server build`
 forces that path deliberately.
 
-`server/` is vendored from the standalone
-[kokoro-tts-server](https://github.com/csabakecskemeti/kokoro-tts-server)
-project, which remains the source of truth and holds the tests and the GHCR
-pipeline. `scripts/sync-server.sh` re-copies it and records the upstream commit
-in `server/VENDORED.md`, so drift is visible rather than silent.
+The server lives at [`server/`](server/) — Dockerfile, compose file, FastAPI
+app and its tests. It is the source of truth for the image: CI in this
+repository builds it and publishes to
+`ghcr.io/csabakecskemeti/kokoro-tts-server`. It has no dependency on the plugin
+and can be run on its own with `docker compose up -d`.
 
 The plugin checks `/health` for `service` and `api_version`, so it can tell
 "server is down" from "server speaks a contract I don't understand". A server

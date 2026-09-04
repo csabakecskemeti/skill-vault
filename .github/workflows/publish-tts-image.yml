@@ -1,0 +1,54 @@
+name: publish local-tts server image
+
+# The image the local-tts plugin pulls. Built from plugins/local-tts/server,
+# which is the source of truth now that the standalone project is retired.
+on:
+  push:
+    branches: [main]
+    paths: ["plugins/local-tts/server/**", ".github/workflows/publish-tts-image.yml"]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ${{ github.repository_owner }}/kokoro-tts-server
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run text-engine tests
+        working-directory: plugins/local-tts/server
+        run: python3 -m pytest tests/ -q
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: plugins/local-tts/server
+          # arm64 matters: Apple silicon runs it natively rather than emulated.
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
