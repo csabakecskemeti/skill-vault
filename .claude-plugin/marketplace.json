@@ -13,6 +13,11 @@
       "name": "local-llm",
       "source": "./plugins/local-llm",
       "description": "Call local LLM for code generation, boilerplate, tests, or docs. Saves tokens."
+    },
+    {
+      "name": "local-tts",
+      "source": "./plugins/local-tts",
+      "description": "Speaks Claude's replies aloud using the Kokoro TTS model running locally. No cloud, no API key."
     }
   ]
 }
