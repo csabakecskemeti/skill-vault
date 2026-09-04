@@ -8,6 +8,9 @@ set -e
 REMOTE=${KOKORO_TTS_IMAGE:-ghcr.io/csabakecskemeti/kokoro-tts-server:latest}
 LOCAL=${KOKORO_TTS_LOCAL_IMAGE:-kokoro-tts-server:latest}
 NAME=${KOKORO_TTS_CONTAINER:-kokoro-tts}
+# The build context ships with the plugin, so a failed pull is recoverable
+# without hunting down a separate repository.
+CONTEXT=$(CDPATH= cd -- "$(dirname -- "$0")/../server" 2>/dev/null && pwd || true)
 PORT=${KOKORO_TTS_PORT:-42821}
 HEALTH="http://localhost:$PORT/health"
 
@@ -59,13 +62,21 @@ case "${1:-status}" in
         echo "Pulling $REMOTE -- this is a multi-GB download and will take"
         echo "several minutes. It happens once; later starts are seconds."
         echo
-        if ! docker pull "$REMOTE"; then
-          echo >&2
-          echo "Pull failed. Build it locally instead:" >&2
-          echo "  cd ../kokoro-tts-server && docker build -t $LOCAL ." >&2
+        if docker pull "$REMOTE"; then
+          IMAGE="$REMOTE"
+        elif [ -n "$CONTEXT" ] && [ -f "$CONTEXT/Dockerfile" ]; then
+          echo
+          echo "Pull failed. Falling back to building from the bundled source"
+          echo "at $CONTEXT -- slower than a pull (it installs torch and bakes"
+          echo "the model), but needs no registry access."
+          echo
+          docker build -t "$LOCAL" "$CONTEXT" || {
+            echo "build failed; see the output above" >&2; exit 1; }
+          IMAGE="$LOCAL"
+        else
+          echo "Pull failed and no bundled build context was found." >&2
           exit 1
         fi
-        IMAGE="$REMOTE"
       fi
       echo "starting a new container '$NAME' from $IMAGE"
       docker run -d --name "$NAME" -p "$PORT:8080" --restart unless-stopped "$IMAGE" >/dev/null
@@ -75,6 +86,11 @@ case "${1:-status}" in
     echo "ready on http://localhost:$PORT"
     curl -fsS "$HEALTH" 2>/dev/null && echo ;;
   pull)    have_docker; docker pull "$REMOTE" ;;
+  build)   have_docker
+           [ -n "$CONTEXT" ] && [ -f "$CONTEXT/Dockerfile" ] || {
+             echo "no bundled build context at ../server" >&2; exit 1; }
+           echo "building $LOCAL from $CONTEXT"
+           docker build -t "$LOCAL" "$CONTEXT" ;;
   down)    have_docker; docker stop "$NAME" >/dev/null 2>&1 && echo "stopped $NAME" || echo "$NAME not running" ;;
   restart) have_docker; docker restart "$NAME" >/dev/null && wait_healthy 180 && echo "restarted $NAME" ;;
   rm)      have_docker; docker rm -f "$NAME" >/dev/null 2>&1 && echo "removed $NAME" || echo "$NAME not present" ;;
@@ -83,8 +99,9 @@ case "${1:-status}" in
     have_docker
     docker ps --filter "name=^${NAME}$" --format 'container: {{.Names}}  {{.Status}}  {{.Ports}}' | grep . \
       || echo "container: not running"
-    IMAGE=$(pick_image); [ -n "$IMAGE" ] && echo "image    : $IMAGE" || echo "image    : not pulled yet (run: server up)"
+    IMAGE=$(pick_image); [ -n "$IMAGE" ] && echo "image    : $IMAGE" || echo "image    : not built or pulled yet (run: server up)"
+    [ -n "$CONTEXT" ] && [ -f "$CONTEXT/Dockerfile" ] && echo "source   : bundled at $CONTEXT"
     if healthy; then printf 'health   : '; curl -fsS "$HEALTH"; echo
     else echo "health   : unreachable on port $PORT"; fi ;;
-  *) echo "usage: server-ctl.sh {up|down|restart|rm|pull|logs [N]|status}" >&2; exit 2 ;;
+  *) echo "usage: server-ctl.sh {up|down|restart|rm|pull|build|logs [N]|status}" >&2; exit 2 ;;
 esac

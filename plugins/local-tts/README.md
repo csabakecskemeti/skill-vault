@@ -90,8 +90,20 @@ download and will take several minutes. It happens once; later starts are second
 ```
 
 A locally built image wins over the published one — if you built it, you meant
-it. If the pull fails it tells you to build from
-[`kokoro-tts-server`](../kokoro-tts-server) rather than dying quietly.
+it.
+
+**If the pull fails, it builds from source instead of giving up.** The whole
+build context ships inside the plugin at `server/` (32 KB), so an offline
+machine, a proxied network, or an unpublished architecture still gets a working
+server. Building is slower than pulling — it installs torch and bakes the model,
+a few minutes — but it needs no registry access at all. `/tts server build`
+forces that path deliberately.
+
+`server/` is vendored from the standalone
+[kokoro-tts-server](https://github.com/csabakecskemeti/kokoro-tts-server)
+project, which remains the source of truth and holds the tests and the GHCR
+pipeline. `scripts/sync-server.sh` re-copies it and records the upstream commit
+in `server/VENDORED.md`, so drift is visible rather than silent.
 
 The plugin checks `/health` for `service` and `api_version`, so it can tell
 "server is down" from "server speaks a contract I don't understand". A server
@@ -117,7 +129,8 @@ is the faster of the two; switch to `http` when you would rather not keep a
 
 ### Container (no Python deps here)
 
-Only Docker is required.
+Only Docker is required — the image is pulled if available, and built from the
+bundled `server/` source if not.
 
 ```sh
 /tts server up          # pull-or-start the container, wait for /health
@@ -151,7 +164,8 @@ Speaking is on by default; it starts working after the next reply.
 | `/tts voice bm_george` | Switch voice (restarts the daemon) |
 | `/tts speed 1.15` | 0.5–2.0; ~1.15 is a good skim speed |
 | `/tts backend embedded\|http` | Switch synthesis backend |
-| `/tts server up\|down\|status\|logs\|pull\|rm` | Manage the TTS container |
+| `/tts server up\|down\|status\|logs\|rm` | Manage the TTS container |
+| `/tts server pull` / `build` | Fetch the published image, or build the bundled source |
 | `/tts log` | Tail the daemon log |
 | `/speak <text>` | Say something one-off |
 
