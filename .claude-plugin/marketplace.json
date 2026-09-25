@@ -18,6 +18,11 @@
       "name": "local-tts",
       "source": "./plugins/local-tts",
       "description": "Speaks Claude's replies aloud using the Kokoro TTS model running locally. No cloud, no API key."
+    },
+    {
+      "name": "session-db",
+      "source": "./plugins/session-db",
+      "description": "Searchable archive of your Claude Code sessions: find what was said or decided in past sessions and resume them, even after transcripts are cleaned up."
     }
   ]
 }

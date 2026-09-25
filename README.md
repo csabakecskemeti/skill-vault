@@ -22,6 +22,7 @@ A Claude Code plugin marketplace containing reusable skills.
 | Plugin | Command | Description |
 |--------|---------|-------------|
 | [projectz](./plugins/projectz/) | `/projectz` | Git-based markdown project tracker for managing projects across multiple computers |
+| [session-db](./plugins/session-db/) | `/session-db:sessions` | Searchable archive of past Claude Code sessions; find decisions and resume sessions, even after cleanup |
 
 ## Structure
 
