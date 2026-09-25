@@ -102,7 +102,8 @@ class Speaker:
     def _synth_job(self, gen, text, voice, speed):
         self.warm()
         chunks = ttslib.split_chunks(text)
-        log(f"speak [{voice} x{speed}] {len(chunks)} chunk(s): "
+        label = getattr(self.backend, "voice_for", lambda v: v)(voice) or "default"
+        log(f"speak [{label} x{speed}] {len(chunks)} chunk(s): "
             f"{text[:60]}{'...' if len(text) > 60 else ''}")
         t0 = time.time()
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read/write plugin config and report daemon status. Stdlib only."""
 import json
+import re
 import subprocess
 import sys
 import urllib.request
@@ -20,14 +21,27 @@ VOICES = {
           "bm_george", "bm_fable", "bm_lewis", "bm_daniel"],
 }
 
+BACKENDS = ("embedded", "http", "say")
+
+
+def say_voices():
+    """(name, locale) for each macOS voice, from `say -v ?`."""
+    try:
+        out = subprocess.run(["say", "-v", "?"], capture_output=True, text=True).stdout
+    except OSError:
+        return []
+    found = (re.match(r"^(.+?)\s+([a-z]{2,3}_[A-Za-z0-9]+)\s+#", line) for line in out.splitlines())
+    return [m.groups() for m in found if m]
+
+
 BOOL = {"true": True, "1": True, "yes": True, "on": True,
         "false": False, "0": False, "no": False, "off": False}
 
 
 def coerce(key, raw):
     if key == "backend":
-        if raw not in ("embedded", "http"):
-            raise SystemExit(f"backend must be 'embedded' or 'http', got {raw!r}")
+        if raw not in BACKENDS:
+            raise SystemExit(f"backend must be one of {', '.join(BACKENDS)}, got {raw!r}")
         return raw
     if key in ("enabled",):
         if raw.lower() not in BOOL:
@@ -51,16 +65,28 @@ def main():
         if key not in ttslib.DEFAULTS:
             raise SystemExit(f"unknown key {key!r}; known: {', '.join(ttslib.DEFAULTS)}")
         cfg = ttslib.load_config()
+        if key == "voice" and cfg["backend"] == "say":
+            key = "say_voice"     # Kokoro names mean nothing to `say`
         cfg[key] = coerce(key, raw)
+        if key == "say_voice" and raw and raw not in {n for n, _ in say_voices()}:
+            print(f"warning: {raw!r} is not an installed macOS voice", file=sys.stderr)
         if key == "voice":
             known = VOICES["a"] + VOICES["b"]
             if raw not in known:
                 print(f"warning: {raw!r} is not a known Kokoro voice", file=sys.stderr)
             cfg["lang_code"] = "b" if raw.startswith(("bf_", "bm_")) else "a"
         ttslib.save_config(cfg)
-        if key in ("voice", "lang_code", "backend", "server_url"):
+        if key in ("voice", "lang_code", "backend", "server_url", "say_voice"):
             # lang_code is baked into the loaded pipeline; restart to apply.
             speak.request({"cmd": "shutdown"}, autostart=False)
+        return
+
+    if cmd == "voices" and ttslib.load_config()["backend"] == "say":
+        # English first: the voices worth trying for Claude's replies.
+        voices = sorted(say_voices(), key=lambda v: (not v[1].startswith("en_"), v[1], v[0]))
+        print("macOS voices (backend=say):")
+        for name, locale in voices:
+            print(f"  {name:<32} {locale}")
         return
 
     if cmd == "voices":
@@ -78,7 +104,10 @@ def main():
     cfg = ttslib.load_config()
     ping = speak.request({"cmd": "ping"}, autostart=False)
     print(f"  speaking : {'on' if cfg['enabled'] else 'off'}")
-    print(f"  voice    : {cfg['voice']} (lang {cfg['lang_code']}, speed {cfg['speed']}x)")
+    if cfg["backend"] == "say":
+        print(f"  voice    : {cfg['say_voice'] or 'system default'} (macOS, speed {cfg['speed']}x)")
+    else:
+        print(f"  voice    : {cfg['voice']} (lang {cfg['lang_code']}, speed {cfg['speed']}x)")
     print(f"  max chars: {cfg['max_chars']}")
     if ping.get("ok"):
         print(f"  daemon   : running (pid {ping['pid']}), "
@@ -102,7 +131,11 @@ def main():
                       f"loaded: {info.get('loaded_pipelines') or 'none yet'})")
         except Exception as exc:
             print(f"  UNREACHABLE ({exc})")
-            print("             start it with: docker compose up -d")
+            print("             start it with: /tts server up")
+    elif cfg["backend"] == "say":
+        ok = sys.platform == "darwin" and subprocess.run(
+            ["which", "say"], capture_output=True).returncode == 0
+        print(f"  say      : {'ok' if ok else 'UNAVAILABLE - needs macOS'}")
     elif not ttslib.VENV_PYTHON.exists():
         print(f"  venv     : {ttslib.VENV}  MISSING - run setup.sh")
     else:

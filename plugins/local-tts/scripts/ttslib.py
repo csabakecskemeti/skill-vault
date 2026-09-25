@@ -36,13 +36,15 @@ SAMPLE_RATE = 24000
 DEFAULTS = {
     "enabled": True,
     # "embedded" runs Kokoro in the daemon (needs setup.sh); "http" calls a
-    # kokoro-tts-server container and needs no Python deps on this machine.
+    # kokoro-tts-server container and needs no Python deps on this machine;
+    # "say" uses macOS's built-in voices and needs nothing at all.
     "backend": "embedded",
     "server_url": "http://localhost:42821",
     "request_timeout": 120,
     "voice": "af_heart",
     "speed": 1.0,
     "lang_code": "a",
+    "say_voice": "",          # macOS voice for the "say" backend; "" = system default
     "max_chars": 1200,
     "idle_unload_seconds": 0,
 }

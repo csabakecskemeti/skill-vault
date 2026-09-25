@@ -67,6 +67,7 @@ identically on every backend — including `embedded`, which has no server to as
 |---|---|---|---|---|
 | `embedded` (default) | in the daemon | `./setup.sh` (~1.1 GB venv) | **0.2–0.8 s** | Fastest. Needs Python deps locally |
 | `http` | in a container, or any OpenAI-compatible service | `/tts server up` (1.9 GB image) | **~2.6 s** | No Python deps here. Docker on macOS is CPU-only — no Metal — hence slower |
+| `say` | macOS's built-in `say` | nothing | **~0.5 s** | macOS only. Zero install; system voices instead of Kokoro's |
 
 ```
 clean → split → [chunk 1] ─┐
@@ -138,6 +139,23 @@ bundled `server/` source if not.
 /tts status             # confirm reachable and API-compatible
 ```
 
+### macOS `say` (nothing to install)
+
+Uses the system voices that ship with every Mac. `say` renders each chunk to a
+WAV, so filtering, chunking, `/tts stop` and playback behave exactly as on the
+other backends.
+
+```sh
+/tts backend say
+/tts voice              # lists macOS voices, English first
+/tts voice Samantha     # "" or unset = the system default voice
+```
+
+On this backend `/tts voice` sets `say_voice`, leaving the Kokoro `voice`
+untouched for when you switch back. Speed scales `say`'s rate from 175 wpm.
+More natural voices (Premium / Siri) can be downloaded in System Settings →
+Accessibility → Spoken Content.
+
 ### Embedded (lowest latency)
 
 Needs `espeak-ng` (Kokoro's phonemizer) and Python 3.9+.
@@ -163,7 +181,7 @@ Speaking is on by default; it starts working after the next reply.
 | `/tts stop` | Cut off what is playing right now |
 | `/tts voice bm_george` | Switch voice (restarts the daemon) |
 | `/tts speed 1.15` | 0.5–2.0; ~1.15 is a good skim speed |
-| `/tts backend embedded\|http` | Switch synthesis backend |
+| `/tts backend embedded\|http\|say` | Switch synthesis backend |
 | `/tts server up\|down\|status\|logs\|rm` | Manage the TTS container |
 | `/tts server pull` / `build` | Fetch the published image, or build the bundled source |
 | `/tts log` | Tail the daemon log |
@@ -184,7 +202,8 @@ Speaking is on by default; it starts working after the next reply.
 | `speed` | `1.0` | Playback rate |
 | `lang_code` | `a` | `a` American, `b` British — set automatically with the voice |
 | `max_chars` | `1200` | Longer replies truncate at a sentence boundary |
-| `backend` | `embedded` | `embedded` or `http` |
+| `backend` | `embedded` | `embedded`, `http` or `say` |
+| `say_voice` | `""` | macOS voice for the `say` backend; empty = system default |
 | `server_url` | `http://localhost:42821` | Used by the `http` backend |
 | `request_timeout` | `120` | Seconds to wait on the `http` backend |
 

@@ -5,6 +5,7 @@ Filtering, chunking and playback live outside, so they work identically no
 matter which backend is selected.
 """
 import json
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -17,6 +18,9 @@ import ttslib  # noqa: E402
 # The contract this plugin speaks. Must match the server's /health api_version.
 API_VERSION = 1
 SERVICE = "kokoro-tts-server"
+
+# Kokoro voice names: af_heart, bm_george, ... (lang + gender prefix).
+KOKORO_VOICE = re.compile(r"^[ab][fm]_\w+$")
 
 
 class BackendError(RuntimeError):
@@ -142,7 +146,60 @@ class HttpBackend:
             raise BackendError(f"TTS server unreachable: {exc.reason}") from None
 
 
-BACKENDS = {"embedded": EmbeddedBackend, "http": HttpBackend}
+class SayBackend:
+    """macOS's built-in `say`. No model, no venv, no container -- the system
+    voices render straight to WAV, so it works on any Mac out of the box.
+
+    Kokoro voice names mean nothing to `say`, so those fall back to the
+    configured `say_voice` (empty = the system default voice).
+    """
+
+    name = "say"
+    BASE_WPM = 175   # `say`'s typical default rate; speed scales it
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.timeout = cfg["request_timeout"]
+
+    @staticmethod
+    def check():
+        import shutil
+        if sys.platform != "darwin" or not shutil.which("say"):
+            raise BackendError("the 'say' backend needs macOS and its built-in `say` command")
+
+    def describe(self):
+        return f"say ({self.cfg.get('say_voice') or 'system default voice'})"
+
+    def warm(self):
+        pass
+
+    def voice_for(self, voice):
+        if not voice or KOKORO_VOICE.match(voice):
+            return self.cfg.get("say_voice") or ""
+        return voice
+
+    def synthesize(self, text, voice, speed):
+        import subprocess
+        import tempfile
+
+        voice = self.voice_for(voice)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "say.wav"
+            cmd = ["say", "-o", str(out), "--file-format=WAVE",
+                   f"--data-format=LEI16@{ttslib.SAMPLE_RATE}",
+                   "-r", str(round(self.BASE_WPM * speed))]
+            if voice:
+                cmd += ["-v", voice]
+            # Text goes in on stdin so a leading "-" is never read as a flag.
+            proc = subprocess.run(cmd, input=text.encode("utf-8"),
+                                  capture_output=True, timeout=self.timeout)
+            if proc.returncode != 0:
+                detail = proc.stderr.decode("utf-8", "replace").strip()[:300]
+                raise BackendError(f"say failed: {detail or proc.returncode}")
+            return out.read_bytes() if out.exists() else b""
+
+
+BACKENDS = {"embedded": EmbeddedBackend, "http": HttpBackend, "say": SayBackend}
 
 
 def build(cfg):

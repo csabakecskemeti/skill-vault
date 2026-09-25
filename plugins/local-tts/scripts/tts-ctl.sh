@@ -15,11 +15,11 @@ case "$cmd" in
             echo "TTS off" ;;
   stop)     "$PY" "$DIR/speak.py" --stop >/dev/null 2>&1 || true ;;
   say)      "$PY" "$DIR/speak.py" "$@" ;;
-  voice)    if [ -n "$1" ]; then "$PY" "$DIR/config.py" set voice "$1" && echo "voice: $1"
+  voice)    if [ -n "$1" ]; then "$PY" "$DIR/config.py" set voice "$*" && echo "voice: $*"
             else "$PY" "$DIR/config.py" voices; fi ;;
   speed)    "$PY" "$DIR/config.py" set speed "$1" && echo "speed: $1" ;;
   backend)  if [ -n "$1" ]; then "$PY" "$DIR/config.py" set backend "$1" && echo "backend: $1"
-            else "$PY" "$DIR/config.py" get | grep -E '"(backend|server_url)"'; fi ;;
+            else "$PY" "$DIR/config.py" get | grep -E '"(backend|server_url|say_voice)"'; fi ;;
   set)      "$PY" "$DIR/config.py" set "$@" ;;
   start)    "$PY" "$DIR/speak.py" --start ;;
   restart)  "$PY" "$DIR/speak.py" --shutdown >/dev/null 2>&1 || true
@@ -28,6 +28,6 @@ case "$cmd" in
   log)      tail -n "${1:-40}" "$HOME_DIR/daemon.log" ;;
   server)   "$DIR/server-ctl.sh" "$@" ;;
   status)   "$PY" "$DIR/config.py" status ;;
-  *)        echo "usage: tts-ctl.sh {on|off|stop|say TEXT|voice [NAME]|speed N|backend [embedded|http]|server up\|down\|status|set K V|start|restart|shutdown|status|log [N]}" >&2
+  *)        echo "usage: tts-ctl.sh {on|off|stop|say TEXT|voice [NAME]|speed N|backend [embedded|http|say]|server up|down|status|set K V|start|restart|shutdown|status|log [N]}" >&2
             exit 2 ;;
 esac
