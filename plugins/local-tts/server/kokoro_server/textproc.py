@@ -110,7 +110,8 @@ def clean_for_tts(text: str, max_chars: int = 1200) -> str:
     text = re.sub(r"\s+", " ", text)
     text = re.sub(r"[:;,]\s*\.", ".", text)
     text = re.sub(r"(\.\s*){2,}", ". ", text)
-    text = text.strip()
+    # A dropped leading block (a table, a code fence) leaves its ". " behind.
+    text = re.sub(r"^[\s.,;:!?]+", "", text).strip()
 
     if max_chars and len(text) > max_chars:
         cut = text[:max_chars]

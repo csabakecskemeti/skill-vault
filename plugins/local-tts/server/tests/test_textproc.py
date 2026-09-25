@@ -43,6 +43,11 @@ def test_paths_collapse_to_basename():
     assert "/Users" not in spoken("Edited /Users/me/proj/src/client.py today.")
 
 
+def test_no_stray_period_after_dropped_leading_block():
+    text = "| a | b |\n|---|---|\n| 1 | 2 |\n\nEach bump lets the update show up."
+    assert spoken(text) == "Each bump lets the update show up."
+
+
 def test_keeps_ordinary_prose():
     out = spoken("The retry loop was off by one. It now stops after three attempts.")
     assert out == "The retry loop was off by one. It now stops after three attempts."
