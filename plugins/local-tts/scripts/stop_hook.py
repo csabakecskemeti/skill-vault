@@ -7,10 +7,12 @@ Runs on two events:
                 instead of waiting for the whole turn to end.
   Stop       -- the rest of the turn, ending with the final reply.
 
-The final reply comes from the Stop payload's `last_assistant_message`, not
-the transcript: when Stop fires, the last message is often not flushed to the
-transcript yet, and reading it from there spoke the *previous* reply -- the
-plugin ran one turn behind.
+Hooks fire before the transcript catches up: the message that triggered them
+is often not flushed yet, and reading the transcript straight away spoke the
+*previous* piece -- the plugin ran one step behind. So the final reply comes
+from the Stop payload's `last_assistant_message`, and on PreToolUse the worker
+waits until the tool call itself (by `tool_use_id`) has reached the transcript,
+which means the text written before it has too.
 
 Runs detached from the hook itself, so a cold daemon start never blocks.
 """
@@ -18,6 +20,7 @@ import fcntl
 import hashlib
 import json
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -25,6 +28,7 @@ import speak  # noqa: E402
 import ttslib  # noqa: E402
 
 MAX_SCAN_LINES = 5000   # a turn never spans more; bounds work on huge transcripts
+FLUSH_WAIT_SECONDS = 2.0
 
 
 def _text_of(content):
@@ -76,6 +80,23 @@ def turn_texts(transcript_path):
     return turn_id, texts[::-1]
 
 
+def wait_for_tool_use(transcript_path, tool_use_id):
+    """Block until the tool call is in the transcript (or give up quietly)."""
+    needle = f'"id":"{tool_use_id}"'.encode()
+    deadline = time.time() + FLUSH_WAIT_SECONDS
+    while time.time() < deadline:
+        try:
+            with open(transcript_path, "rb") as f:
+                f.seek(0, 2)
+                f.seek(max(0, f.tell() - 262144))   # the call is near the end
+                if needle in f.read().replace(b'": "', b'":"'):
+                    return True
+        except OSError:
+            return False
+        time.sleep(0.05)
+    return False
+
+
 def _digest(text):
     return hashlib.sha1(" ".join(text.split()).encode("utf-8")).hexdigest()[:16]
 
@@ -91,7 +112,10 @@ def main():
         return 0
 
     session_id = payload.get("session_id", "")
-    turn_id, texts = turn_texts(payload.get("transcript_path", ""))
+    transcript = payload.get("transcript_path", "")
+    if payload.get("tool_use_id"):
+        wait_for_tool_use(transcript, payload["tool_use_id"])
+    turn_id, texts = turn_texts(transcript)
     final = _text_of(payload.get("last_assistant_message"))
     if final.strip():
         texts.append(final)   # a duplicate of a flushed copy is dropped below
