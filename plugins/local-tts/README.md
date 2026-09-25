@@ -209,8 +209,12 @@ Speaking is on by default; it starts working after the next reply.
 
 ## Notes
 
-- Only the final text of each turn is spoken. Tool calls and intermediate
-  messages are skipped, and a repeated `Stop` for the same reply is deduped.
+- Every piece of text Claude writes in a turn is spoken once, in order. Text
+  written before a tool call is spoken as the tool starts (`PreToolUse`); the
+  rest plays at `Stop`. Repeated hooks for the same text are deduped.
+- The final reply is taken from the `Stop` payload's `last_assistant_message`,
+  not the transcript. When `Stop` fires the last message is often not flushed
+  yet, so reading the transcript spoke the *previous* reply, one turn behind.
 - The daemon **refuses to start** when it cannot synthesize — missing venv, or
   an unreachable/incompatible server. Accepting text and failing into an unread
   log is a worse failure than never starting, so `/tts status` names the cause.

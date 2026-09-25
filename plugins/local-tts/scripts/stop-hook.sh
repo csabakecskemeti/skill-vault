@@ -1,5 +1,5 @@
 #!/bin/sh
-# Stop hook entrypoint. Buffers the hook payload and hands it to a detached
+# Stop / PreToolUse hook entrypoint. Buffers the hook payload and hands it to a detached
 # worker so the turn never waits on model loading or playback.
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 HOME_DIR=${LOCAL_TTS_HOME:-$HOME/.local/share/local-tts}

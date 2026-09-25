@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
-"""Stop-hook worker: read the last assistant reply from the transcript and
-hand it to the TTS daemon.
+"""Hook worker: speak whatever assistant text this turn has produced that has
+not been spoken yet.
 
-Runs detached from the hook itself, so a cold daemon start never blocks the
-end of a turn.
+Runs on two events:
+  PreToolUse -- text written before a tool call is spoken as the tool starts,
+                instead of waiting for the whole turn to end.
+  Stop       -- the rest of the turn, ending with the final reply.
+
+The final reply comes from the Stop payload's `last_assistant_message`, not
+the transcript: when Stop fires, the last message is often not flushed to the
+transcript yet, and reading it from there spoke the *previous* reply -- the
+plugin ran one turn behind.
+
+Runs detached from the hook itself, so a cold daemon start never blocks.
 """
+import fcntl
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -13,37 +24,60 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import speak  # noqa: E402
 import ttslib  # noqa: E402
 
+MAX_SCAN_LINES = 5000   # a turn never spans more; bounds work on huge transcripts
 
-def last_assistant_text(transcript_path: str):
-    """Return (uuid, text) of the final assistant message in the transcript."""
+
+def _text_of(content):
+    """Concatenated text blocks of a message's content, or ''."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(b.get("text", "") for b in content
+                         if isinstance(b, dict) and b.get("type") == "text"
+                         and b.get("text", "").strip())
+    return ""
+
+
+def _is_prompt(entry):
+    """A real user prompt -- not a tool result, meta entry or subagent line."""
+    if entry.get("type") != "user" or entry.get("isMeta") or entry.get("isSidechain"):
+        return False
+    content = (entry.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return bool(content.strip())
+    return isinstance(content, list) and not any(
+        isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
+
+
+def turn_texts(transcript_path):
+    """(turn_id, [assistant texts in order]) for the current turn.
+
+    Scans backwards to the latest real prompt, so only this turn's lines are
+    parsed however long the session has grown.
+    """
     try:
         lines = Path(transcript_path).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
-        return None, ""
+        return None, []
 
-    for line in reversed(lines):
-        line = line.strip()
-        if not line:
-            continue
+    texts, turn_id = [], None
+    for line in reversed(lines[-MAX_SCAN_LINES:]):
         try:
             entry = json.loads(line)
         except ValueError:
             continue
-        if entry.get("type") != "assistant":
-            continue
-        message = entry.get("message") or {}
-        content = message.get("content")
-        if isinstance(content, str):
-            blocks = [content]
-        elif isinstance(content, list):
-            blocks = [b.get("text", "") for b in content
-                      if isinstance(b, dict) and b.get("type") == "text"]
-        else:
-            continue
-        text = "\n".join(b for b in blocks if b.strip())
-        if text.strip():
-            return entry.get("uuid") or entry.get("requestId"), text
-    return None, ""
+        if _is_prompt(entry):
+            turn_id = entry.get("uuid")
+            break
+        if entry.get("type") == "assistant" and not entry.get("isSidechain"):
+            text = _text_of((entry.get("message") or {}).get("content"))
+            if text.strip():
+                texts.append(text)
+    return turn_id, texts[::-1]
+
+
+def _digest(text):
+    return hashlib.sha1(" ".join(text.split()).encode("utf-8")).hexdigest()[:16]
 
 
 def main():
@@ -57,29 +91,46 @@ def main():
         return 0
 
     session_id = payload.get("session_id", "")
-    uid, text = last_assistant_text(payload.get("transcript_path", ""))
-    if not text.strip():
-        return 0
+    turn_id, texts = turn_texts(payload.get("transcript_path", ""))
+    final = _text_of(payload.get("last_assistant_message"))
+    if final.strip():
+        texts.append(final)   # a duplicate of a flushed copy is dropped below
 
-    # Stop can fire more than once for the same reply; speak it only once.
-    state = ttslib.load_state()
-    spoken = state.setdefault("spoken", {})
-    if uid and spoken.get(session_id) == uid:
-        return 0
-    if uid:
-        spoken[session_id] = uid
-        # Keep the dedup table from growing without bound across sessions.
-        if len(spoken) > 50:
-            for key in list(spoken)[:-50]:
-                spoken.pop(key, None)
+    # Several hooks can fire at once (parallel tool calls, a repeated Stop):
+    # serialize, so each piece of text is spoken exactly once and in order.
+    ttslib.HOME.mkdir(parents=True, exist_ok=True)
+    with open(ttslib.HOME / "hook.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        state = ttslib.load_state()
+        sessions = state.setdefault("turns", {})
+        seen = sessions.get(session_id)
+        if not seen or seen.get("turn") != turn_id:
+            seen = {"turn": turn_id, "spoken": []}
+
+        fresh = []
+        for text in texts:
+            key = _digest(text)
+            if key not in seen["spoken"]:
+                seen["spoken"].append(key)
+                fresh.append(text)
+        if not fresh:
+            return 0
+
+        sessions.pop(session_id, None)
+        sessions[session_id] = seen
+        for stale in list(sessions)[:-50]:   # bound the table across sessions
+            sessions.pop(stale, None)
+        state.pop("spoken", None)            # pre-0.3 dedup format
         ttslib.save_state(state)
 
-    cleaned = ttslib.clean_for_tts(text, cfg["max_chars"])
-    if not cleaned:
-        return 0
-
-    speak.request({"cmd": "speak", "text": cleaned,
-                   "voice": cfg["voice"], "speed": cfg["speed"]})
+        event = payload.get("hook_event_name", "?")
+        for text in fresh:
+            cleaned = ttslib.clean_for_tts(text, cfg["max_chars"])
+            if not cleaned:
+                continue
+            print(f"[hook] {event}: {cleaned[:60]}{'...' if len(cleaned) > 60 else ''}", flush=True)
+            speak.request({"cmd": "speak", "text": cleaned,
+                           "voice": cfg["voice"], "speed": cfg["speed"]})
     return 0
 
 
