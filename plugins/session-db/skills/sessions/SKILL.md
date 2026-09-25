@@ -10,7 +10,8 @@ allowed-tools:
 Every Claude Code session on this machine is indexed into a SQLite full-text archive at
 `~/.claude/session-db/sessions.db`. The archive keeps its own copy of the conversation text, so
 sessions stay searchable after Claude Code deletes old transcripts (`cleanupPeriodDays`, 30 by
-default). Hooks index new messages at session start and end.
+default). Hooks index new messages at session start and end, and every command catches up
+before it answers.
 
 Run everything through:
 
@@ -18,21 +19,21 @@ Run everything through:
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/sessiondb.py" <command> ...
 ```
 
-Before searching, run `index -q` once: it takes well under a second and picks up messages from
-sessions that are still open, including this one.
-
 ## Commands
 
 | Command | Use |
 |---|---|
-| `index -q` | Pick up new messages (incremental). `index <dir>` also imports a backup copy of `~/.claude/projects`. |
 | `search "<words>"` | Best-matching messages, with a snippet, date, session and message `#id`. |
 | `search "<words>" --by-session` | One line per matching session. Good first step for "which session was that?". |
-| `sessions [-p project] [--since 7d]` | Recent sessions with name, date, project and size. |
-| `show <session> --around <#id> [-C 6]` | Read the conversation around a search hit. |
+| `search "<words>" --cards` | Search the summary cards (sessions that have one). |
+| `sessions [-p project] [--since 7d] [--status]` | Recent sessions with name, date, project, size; `--status` adds each card's status line. |
+| `card <session>` | Summary card: goal, status, timeline, decisions, outcomes, open threads, key facts (each citing a message `#id`), plus files written and git commits taken from tool calls. Files and git show even with cards off. |
+| `card <session> --refresh` | Bring the card up to date first (only if cards are set up). |
+| `show <session> --around <#id> [-C 6]` | Read the conversation around a search hit or a card citation. |
 | `show <session> [--last 12 \| --head 10 \| --all] [--role user] [--full]` | Read a session's messages. |
 | `resume <session>` | The exact command to resume it: `cd <dir> && claude --resume <id>`. |
-| `stats` | Size of the archive, top projects, transcripts that exist only in the archive. |
+| `reindex [--full]` | Catch up now; `--full` re-reads every transcript. |
+| `stats` / `config` | Archive summary / whether cards are on and which model makes them. |
 
 `<session>` can be a full id, an id prefix (`8d779eeb`), or a session name or title
 (`neonectar-project`).
@@ -41,16 +42,33 @@ Search filters: `-p/--project <substr>`, `-s/--session <session>`, `--role user|
 `--since 7d|4w|3m|2026-09-01`, `--recent` (newest first), `-n` (limit). Plain words are ANDed;
 use `--raw` for FTS5 syntax (`"exact phrase"`, `OR`, `NEAR`, `prefix*`).
 
+## Summary cards are opt-in
+
+Cards are off until the user turns them on; everything else works without them. Never turn
+them on yourself: the user picks the model and pays for it. If they ask how, show them `config`
+output and these options:
+
+- `cards-setup claude --model haiku`: headless `claude -p` on their own Claude Code login.
+- `cards-setup openai --base-url URL --model NAME [--key-env VAR] [--no-thinking]`: any
+  OpenAI-compatible endpoint (local vLLM/Ollama, OpenAI, OpenRouter, ...).
+- `cards-setup off`.
+
+Once on, cards update in the background when a session has been quiet for 30 minutes and has
+grown, and a card is only ever extended with new messages, never re-read from scratch.
+
 ## How to answer from it
 
-1. Search. If the first query misses, try different words: the archive holds what was actually
+1. For "where are we on X" questions, start with `sessions -p X --status` and `card`. For
+   "what did we decide / say about Y", start with `search`.
+2. Search. If the first query misses, try different words: the archive holds what was actually
    said, which is often not the word the user uses now.
-2. Read around the best hits with `show --around` before concluding. A snippet is not enough
-   to report a decision.
-3. Answer with the source: session name and id, date, and what was said. Quote the user's own
+3. Read around the best hits with `show --around` before concluding. A snippet is not enough
+   to report a decision, and a card item is a pointer: check its `#id` before quoting it.
+4. Answer with the source: session name and id, date, and what was said. Quote the user's own
    words when they matter.
-4. If the user wants to continue that work, give them the `resume` command. Resuming only works
+5. If the user wants to continue that work, give them the `resume` command. Resuming only works
    from the directory the session started in, which is why it includes the `cd`.
 
-What is indexed: user and assistant text of main-thread messages, plus compaction summaries.
-Tool calls, tool output and subagent transcripts are not indexed.
+What is indexed: user and assistant text of main-thread messages, plus compaction summaries;
+from tool calls, only the files written and git commits/pushes. Tool output and subagent
+transcripts are not indexed.

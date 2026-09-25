@@ -21,13 +21,16 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cards  # noqa: E402
+
 HOME = os.path.expanduser("~")
 DEFAULT_SOURCE = os.path.join(HOME, ".claude", "projects")
 DEFAULT_DB = os.environ.get(
     "SESSION_DB", os.path.join(HOME, ".claude", "session-db", "sessions.db")
 )
 MAX_TEXT = 20000  # per message; long pastes are truncated, not dropped
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Harness-injected text that is noise for search.
 NOISE_BLOCK = re.compile(
@@ -40,8 +43,12 @@ COMMAND_TAG = re.compile(r"</?(command-name|command-message|command-args)>")
 # --------------------------------------------------------------------------- db
 
 def connect(path):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    d = os.path.dirname(path)
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    new = not os.path.exists(path)
     db = sqlite3.connect(path, timeout=30)
+    if new:
+        os.chmod(path, 0o600)  # the archive holds whatever was said, secrets included
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA busy_timeout=30000")
@@ -74,11 +81,36 @@ def connect(path):
         CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
             INSERT INTO messages_fts(messages_fts, rowid, text) VALUES ('delete', old.id, old.text);
         END;
+        -- What a session did, read from its tool calls: files written, git operations.
+        CREATE TABLE IF NOT EXISTS touches (
+            session_id TEXT NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL,
+            first_ts TEXT, last_ts TEXT,
+            PRIMARY KEY (session_id, kind, value)
+        );
+        CREATE TABLE IF NOT EXISTS cards (
+            session_id TEXT PRIMARY KEY, card TEXT, text TEXT,
+            covers_through INTEGER, n_messages INTEGER,
+            generated_at TEXT, model TEXT
+        );
+        CREATE TABLE IF NOT EXISTS segments (
+            session_id TEXT NOT NULL, seg_no INTEGER NOT NULL,
+            first_id INTEGER, last_id INTEGER, summary TEXT,
+            PRIMARY KEY (session_id, seg_no)
+        );
+        CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
+            session_id UNINDEXED, text, tokenize='porter unicode61'
+        );
         """
     )
+    row = db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
+    if row and int(row[0]) < 2:
+        # v2 reads tool calls too: re-read every transcript. Stored messages are
+        # kept (uuid dedupe), and files that are gone just keep what we have.
+        db.execute("DELETE FROM files")
     db.execute(
-        "INSERT OR IGNORE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),)
+        "INSERT OR REPLACE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),)
     )
+    db.commit()
     return db
 
 
@@ -100,6 +132,54 @@ def message_text(event):
         parts = [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"]
         return clean("\n".join(p for p in parts if p))
     return ""
+
+
+GIT_OP = re.compile(r"\b(git\s+(push|commit|clone|remote\s+add|init)|gh\s+(repo|pr)\s+\w+)\b")
+
+
+def record_touches(db, sid, event):
+    content = (event.get("message") or {}).get("content")
+    if not isinstance(content, list):
+        return
+    ts = event.get("timestamp")
+    for b in content:
+        if not isinstance(b, dict) or b.get("type") != "tool_use":
+            continue
+        inp = b.get("input") or {}
+        name = b.get("name")
+        if name in ("Write", "Edit", "MultiEdit", "NotebookEdit") and inp.get("file_path"):
+            touch(db, sid, "file", inp["file_path"], ts)
+        elif name == "Bash" and GIT_OP.search(inp.get("command") or ""):
+            touch(db, sid, "git", git_summary(inp["command"], event.get("cwd") or ""), ts)
+
+
+def git_summary(cmd, cwd):
+    """'~/repo: commit, push — <subject>' from a shell command that ran git."""
+    m = re.search(r"\bcd\s+([^\s;&|]+)", cmd)
+    repo = os.path.expanduser(m.group(1)) if m else cwd
+    ops = []
+    for g in GIT_OP.finditer(cmd):
+        op = " ".join(g.group(1).split()[:2]) if g.group(1).startswith("gh") else g.group(2).split()[0]
+        if op not in ops:
+            ops.append(op)
+    subject = ""
+    m = re.search(r"""-m\s+(["'])(.+?)\1""", cmd, re.S) or re.search(
+        r"-F\s+-\s+<<-?\s*'?(\w+)'?[^\n]*\n(.+?)\n", cmd)
+    if m:
+        subject = m.group(2).strip().splitlines()[0][:100]
+    home = os.path.expanduser("~")
+    out = f"{repo.replace(home, '~', 1)}: {', '.join(ops)}"
+    return out + (f" — {subject}" if subject else "")
+
+
+def touch(db, sid, kind, value, ts):
+    db.execute(
+        """INSERT INTO touches(session_id, kind, value, first_ts, last_ts) VALUES (?,?,?,?,?)
+           ON CONFLICT(session_id, kind, value) DO UPDATE SET
+             first_ts = min(coalesce(first_ts, excluded.first_ts), excluded.first_ts),
+             last_ts = max(coalesce(last_ts, ''), excluded.last_ts)""",
+        (sid, kind, value, ts, ts),
+    )
 
 
 def index_file(db, path, host, force=False):
@@ -151,6 +231,8 @@ def index_file(db, path, host, force=False):
                 sess["updated"] = ts
             if t not in ("user", "assistant") or ev.get("isSidechain") or ev.get("isMeta"):
                 continue
+            if t == "assistant":
+                record_touches(db, sid, ev)  # idempotent, so re-reads are safe
             text = message_text(ev)
             if not text:
                 continue
@@ -216,24 +298,37 @@ def transcripts(root):
 
 # --------------------------------------------------------------------- commands
 
-def cmd_index(db, args):
-    lock_path = args.db + ".lock"
-    lock = open(lock_path, "w")
+def run_index(db, db_path, roots=None, force=False, wait=False):
+    """Index new transcript lines. Returns (files, added) or None if another run holds the lock."""
+    lock = open(db_path + ".lock", "w")
     try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(lock, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
     except OSError:
+        return None
+    host = socket.gethostname().split(".")[0]
+    files = added = 0
+    try:
+        for root in roots or [DEFAULT_SOURCE]:
+            for p in transcripts(os.path.expanduser(root)):
+                added += index_file(db, p, host, force=force)
+                db.commit()
+                files += 1
+    finally:
+        lock.close()
+    return files, added
+
+
+def cmd_index(db, args):
+    t0 = time.time()
+    res = run_index(db, args.db, args.path, force=args.force)
+    if res is None:
         if not args.quiet:
             print("Another indexer is running; skipping.")
         return
-    host = socket.gethostname().split(".")[0]
-    t0 = time.time()
-    files = added = 0
-    for root in args.path or [DEFAULT_SOURCE]:
-        for p in transcripts(os.path.expanduser(root)):
-            n = index_file(db, p, host, force=args.force)
-            db.commit()
-            files += 1
-            added += n
+    files, added = res
+    if getattr(args, "cards", False):
+        cmd_cards(db, argparse.Namespace(db=args.db, auto=True, all=False, full=False,
+                                         session=None, quiet=args.quiet))
     if not args.quiet:
         total = db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
         print(f"Scanned {files} transcripts, added {added} messages in {time.time()-t0:.1f}s. "
@@ -259,7 +354,9 @@ def since_ts(s):
 
 
 def cmd_search(db, args):
-    q = fts_query(args.query, args.raw)
+    q = fts_query(" ".join(args.query), args.raw)
+    if args.cards:
+        return search_cards(db, q, args)
     where, params = ["messages_fts MATCH ?"], [q]
     if args.project:
         where.append("(s.project LIKE ? OR s.cwd LIKE ?)")
@@ -303,7 +400,29 @@ def cmd_search(db, args):
         snip = " ".join(r["snip"].split())
         print(f"#{r['id']}  {day(r['ts'])}  {r['session_id'][:8]}  {label(r)}  [{r['project'] or '?'}]  {r['role']}")
         print(f"    {snip}")
-    print(f"\nRead around a hit: sessiondb.py show <session> --around <#id>")
+    print("\nRead around a hit: sessiondb.py show <session> --around <#id>")
+
+
+def search_cards(db, q, args):
+    try:
+        rows = db.execute(
+            """SELECT f.session_id, s.name, s.ai_title, s.project, s.updated, c.card,
+                      snippet(cards_fts, 1, '[', ']', ' … ', 24) AS snip
+               FROM cards_fts f JOIN sessions s ON s.session_id = f.session_id
+               JOIN cards c ON c.session_id = f.session_id
+               WHERE cards_fts MATCH ? ORDER BY bm25(cards_fts) LIMIT ?""",
+            (q, args.limit)).fetchall()
+    except sqlite3.OperationalError as e:
+        sys.exit(f"Bad query {q!r}: {e}")
+    if not rows:
+        print("No card matches (sessions without a card are not covered; try without --cards).")
+        return
+    for r in rows:
+        c = json.loads(r["card"])
+        print(f"{r['session_id'][:8]}  {day(r['updated'])}  {c.get('title') or label(r)}  [{r['project'] or '?'}]")
+        print(f"    status: {c.get('status', '')}")
+        print(f"    match:  {' '.join(r['snip'].split())}")
+    print("\nFull card: sessiondb.py card <session>")
 
 
 def cmd_sessions(db, args):
@@ -321,6 +440,9 @@ def cmd_sessions(db, args):
     for r in db.execute(sql, params + [args.limit]):
         n = (r["n_user"] or 0) + (r["n_assistant"] or 0)
         print(f"{r['session_id'][:8]}  {day(r['updated'])}  {label(r):40.40}  [{r['project'] or '?'}]  {n} msgs")
+        c = db.execute("SELECT card FROM cards WHERE session_id=?", (r["session_id"],)).fetchone()
+        if c and args.status:
+            print(f"          {json.loads(c[0]).get('status', '')}")
 
 
 def cmd_show(db, args):
@@ -359,6 +481,101 @@ def cmd_show(db, args):
         mark = " <<" if args.around and m["id"] == int(str(args.around).lstrip("#")) else ""
         text = m["text"] if args.full else trunc(m["text"], args.width)
         print(f"#{m['id']} [{(m['ts'] or '')[:16]}] {m['role'].upper()}{mark}:\n{text}\n")
+
+
+def cmd_card(db, args):
+    sid = resolve(db, args.session)
+    if not sid:
+        return
+    if args.refresh or args.full:
+        cfg = cards.load_config(args.db)
+        if not cfg or not cfg["summarizer"]:
+            print(cards.config_status(args.db, cfg))
+            return
+        try:
+            cards.build_card(db, sid, cfg, full=args.full)
+        except (urllib_errors() + (RuntimeError,)) as e:
+            print(f"Card generation failed: {e}", file=sys.stderr)
+    print(cards.render(db, sid))
+
+
+def cmd_cards(db, args):
+    cfg = cards.load_config(args.db)
+    if not cfg or not cfg["summarizer"]:
+        if not args.quiet:
+            print(cards.config_status(args.db, cfg))
+        return
+    if args.auto and not cfg["cards"]["auto"]:
+        return
+    lock = open(args.db + ".cards.lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        if not args.quiet:
+            print("Cards are already being generated; skipping.")
+        return
+    if args.session:
+        todo = [resolve(db, args.session)]
+    elif args.all:
+        todo = [r[0] for r in db.execute(
+            """SELECT session_id FROM sessions WHERE
+               (SELECT COUNT(*) FROM messages m WHERE m.session_id = sessions.session_id) >= ?
+               ORDER BY updated DESC""", (cfg["cards"]["min_messages"],))]
+    else:
+        todo = cards.due_sessions(db, cfg["cards"])[: cfg["cards"]["max_per_run"]]
+    log = (lambda *a: None) if args.quiet else print
+    done = 0
+    for sid in filter(None, todo):
+        try:
+            if cards.build_card(db, sid, cfg, full=args.full, log=log):
+                done += 1
+        except (urllib_errors() + (RuntimeError,)) as e:
+            log(f"  {sid[:8]}: failed: {e}")
+            if isinstance(e, urllib_errors()):
+                break  # endpoint unreachable: stop, the next run retries
+    log(f"{done} card(s) updated.")
+
+
+def cmd_config(db, args):
+    print(cards.config_status(args.db, cards.load_config(args.db)))
+
+
+def cmd_cards_setup(db, args):
+    if args.provider == "off":
+        cfg_path = cards.config_path(args.db)
+        if os.path.exists(cfg_path):
+            with open(cfg_path) as f:
+                summ = json.load(f).get("summarizer") or {}
+            cards.write_config(args.db, {**summ, "enabled": False})
+        print("Session cards are off. Existing cards are kept and still shown.")
+        return
+    if args.provider == "claude":
+        summ = {"provider": "claude", "model": args.model or "haiku"}
+    else:
+        if not args.base_url or not args.model:
+            sys.exit("openai needs --base-url and --model")
+        summ = {"provider": "openai", "base_url": args.base_url, "model": args.model}
+        if args.key_env:
+            summ["api_key_env"] = args.key_env
+        if args.no_thinking:  # vLLM/Qwen-style switch; harmless elsewhere
+            summ["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+    path = cards.write_config(args.db, summ)
+    cfg = cards.load_config(args.db)
+    print(f"Wrote {path}\n")
+    print(cards.config_status(args.db, cfg))
+    if not args.no_test:
+        print("\nTesting the summarizer ...", end=" ", flush=True)
+        try:
+            out, model = cards.call_llm(cfg["summarizer"], "Output JSON only.", 'Return {"ok": true}')
+            cards.parse_card(out)
+            print(f"ok ({model})")
+        except Exception as e:  # report any failure; the config stays so it can be fixed
+            print(f"FAILED: {e}")
+
+
+def urllib_errors():
+    import urllib.error
+    return (urllib.error.URLError, TimeoutError, ConnectionError, OSError)
 
 
 def cmd_resume(db, args):
@@ -432,6 +649,9 @@ def now_iso():
 
 # ------------------------------------------------------------------------- main
 
+READ_COMMANDS = {"search", "sessions", "show", "resume", "stats", "card", "cards"}
+
+
 def main():
     ap = argparse.ArgumentParser(description="Search and resume Claude Code sessions.")
     ap.add_argument("--db", default=DEFAULT_DB, help=f"database path (default {DEFAULT_DB})")
@@ -440,10 +660,16 @@ def main():
     p = sub.add_parser("index", help="index new transcript lines (incremental)")
     p.add_argument("path", nargs="*", help=f"transcript roots (default {DEFAULT_SOURCE})")
     p.add_argument("--force", action="store_true", help="re-read files from the start")
+    p.add_argument("--cards", action="store_true", help="then update due cards (hooks use this)")
+    p.add_argument("-q", "--quiet", action="store_true")
+
+    p = sub.add_parser("reindex", help="catch up now; --full re-reads every transcript")
+    p.add_argument("path", nargs="*")
+    p.add_argument("--full", dest="force", action="store_true")
     p.add_argument("-q", "--quiet", action="store_true")
 
     p = sub.add_parser("search", help="full-text search over messages")
-    p.add_argument("query")
+    p.add_argument("query", nargs="+")
     p.add_argument("-n", "--limit", type=int, default=15)
     p.add_argument("-p", "--project", help="substring of project name or cwd")
     p.add_argument("-s", "--session", help="restrict to one session (id, prefix or name)")
@@ -452,9 +678,11 @@ def main():
     p.add_argument("--recent", action="store_true", help="newest first instead of best match")
     p.add_argument("--by-session", action="store_true", help="one line per matching session")
     p.add_argument("--raw", action="store_true", help="pass the query to FTS5 unchanged")
+    p.add_argument("--cards", action="store_true", help="search summary cards instead of messages")
 
     p = sub.add_parser("sessions", help="list sessions, most recent first")
     p.add_argument("-n", "--limit", type=int, default=25)
+    p.add_argument("--status", action="store_true", help="show each card's status line")
     p.add_argument("-p", "--project")
     p.add_argument("--since")
 
@@ -474,11 +702,39 @@ def main():
 
     sub.add_parser("stats", help="database summary")
 
+    p = sub.add_parser("card", help="a session's summary card, plus files and git it touched")
+    p.add_argument("session")
+    p.add_argument("--refresh", action="store_true", help="bring the card up to date first")
+    p.add_argument("--full", action="store_true", help="rebuild the card from the first message")
+
+    p = sub.add_parser("cards", help="generate cards (default: sessions that are due)")
+    p.add_argument("session", nargs="?")
+    p.add_argument("--all", action="store_true", help="every session with enough messages")
+    p.add_argument("--auto", action="store_true", help="only if auto cards are enabled")
+    p.add_argument("--full", action="store_true")
+    p.add_argument("-q", "--quiet", action="store_true")
+
+    sub.add_parser("config", help="show the summarizer configuration")
+
+    p = sub.add_parser("cards-setup", help="turn session cards on (claude | openai) or off")
+    p.add_argument("provider", choices=["claude", "openai", "off"])
+    p.add_argument("--model", help="claude: haiku/sonnet/...; openai: the served model name")
+    p.add_argument("--base-url", help="openai: e.g. http://localhost:11434/v1 or ${VAR}/v1")
+    p.add_argument("--key-env", help="openai: name of the env var holding the API key")
+    p.add_argument("--no-thinking", action="store_true", help="openai: disable model thinking (vLLM/Qwen)")
+    p.add_argument("--no-test", action="store_true")
+
     args = ap.parse_args()
     db = connect(args.db)
+    if args.cmd in READ_COMMANDS:
+        # Catch up before answering: a no-change run only stats each transcript,
+        # so the archive is never behind what is on disk.
+        run_index(db, args.db, wait=True)
     try:
-        {"index": cmd_index, "search": cmd_search, "sessions": cmd_sessions, "show": cmd_show,
-         "resume": cmd_resume, "stats": cmd_stats}[args.cmd](db, args)
+        {"index": cmd_index, "reindex": cmd_index, "search": cmd_search,
+         "sessions": cmd_sessions, "show": cmd_show, "resume": cmd_resume, "stats": cmd_stats,
+         "card": cmd_card, "cards": cmd_cards, "config": cmd_config,
+         "cards-setup": cmd_cards_setup}[args.cmd](db, args)
     finally:
         db.close()
 
