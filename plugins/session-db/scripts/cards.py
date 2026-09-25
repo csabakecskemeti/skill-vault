@@ -96,19 +96,31 @@ def load_config(db_path):
     return {"summarizer": summ, "cards": {**DEFAULT_CARDS, **(cfg.get("cards") or {})}}
 
 
-def write_config(db_path, summarizer):
+def read_raw(db_path):
     p = config_path(db_path)
-    cfg = {}
-    if os.path.exists(p):
-        with open(p) as f:
-            cfg = json.load(f)
-    cfg["summarizer"] = summarizer
+    if not os.path.exists(p):
+        return {}
+    with open(p) as f:
+        return json.load(f)
+
+
+def write_raw(db_path, cfg):
+    """Write config.json readable only by the user: it may hold an API key."""
+    p = config_path(db_path)
+    os.makedirs(os.path.dirname(p), mode=0o700, exist_ok=True)
     cfg.setdefault("cards", dict(DEFAULT_CARDS))
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "w") as f:
+    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         json.dump(cfg, f, indent=2)
         f.write("\n")
+    os.chmod(p, 0o600)
     return p
+
+
+def write_config(db_path, summarizer):
+    cfg = read_raw(db_path)
+    cfg["summarizer"] = summarizer
+    return write_raw(db_path, cfg)
 
 
 def expand(v):
@@ -159,7 +171,7 @@ def call_openai(summ, system, user):
     }
     body.update(summ.get("extra_body") or {})
     headers = {"Content-Type": "application/json"}
-    key = os.environ.get(summ.get("api_key_env") or "", "")
+    key = summ.get("api_key") or os.environ.get(summ.get("api_key_env") or "", "")
     if key:
         headers["Authorization"] = f"Bearer {key}"
     req = urllib.request.Request(url, json.dumps(body).encode(), headers)
@@ -384,9 +396,14 @@ def config_status(db_path, cfg):
     if summ["provider"] == "claude":
         where = f"claude -p --model {summ.get('model', 'haiku')} (your Claude Code login)"
     else:
-        key = summ.get("api_key_env")
-        where = (f"{summ['model']} at {expand(summ['base_url'])} (key: "
-                 f"{'$' + key if key else 'none'}{'' if not key or os.environ.get(key) else ', NOT SET'})")
+        env = summ.get("api_key_env")
+        if summ.get("api_key"):
+            keyinfo = "stored in config"
+        elif env:
+            keyinfo = f"${env}" + ("" if os.environ.get(env) else ", NOT SET")
+        else:
+            keyinfo = "none"
+        where = f"{summ['model']} at {expand(summ['base_url'])} (key: {keyinfo})"
     return (f"config: {config_path(db_path)}\nsummarizer: {where}\n"
             f"auto cards: {'on' if c['auto'] else 'off'} (after {c['idle_minutes']} idle min; "
             f"first card at {c['min_messages']} msgs, refresh after {c['min_new_messages']} new)")

@@ -44,14 +44,10 @@ use `--raw` for FTS5 syntax (`"exact phrase"`, `OR`, `NEAR`, `prefix*`).
 
 ## Summary cards are opt-in
 
-Cards are off until the user turns them on; everything else works without them. Never turn
-them on yourself: the user picks the model and pays for it. If they ask how, show them `config`
-output and these options:
-
-- `cards-setup claude --model haiku`: headless `claude -p` on their own Claude Code login.
-- `cards-setup openai --base-url URL --model NAME [--key-env VAR] [--no-thinking]`: any
-  OpenAI-compatible endpoint (local vLLM/Ollama, OpenAI, OpenRouter, ...).
-- `cards-setup off`.
+Cards are off until the user turns them on; everything else works without them. Never change
+the card setup yourself: the user picks the model and pays for it. If they ask how, point them
+to `/session-db:cards` (no arguments shows the status), e.g. `/session-db:cards haiku`,
+`/session-db:cards local URL MODEL [KEY_ENV]`, `/session-db:cards on|off`.
 
 Once on, cards update in the background when a session has been quiet for 30 minutes and has
 grown, and a card is only ever extended with new messages, never re-read from scratch.

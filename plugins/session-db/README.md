@@ -51,24 +51,32 @@ decisions, outcomes, open threads and key facts. Every item cites the message `#
 from, so it can be checked with `show --around`. Cards are searchable (`search --cards`).
 
 **Cards are off by default.** Summarizing needs an LLM, and which one (and who pays for it) is
-your call. Turn them on with one of:
+your call. Set it up from inside Claude Code with `/session-db:cards`, the same way `/tts`
+controls local-tts:
 
-```bash
-# headless `claude -p` on your own Claude Code login; counts against your plan
-sessiondb.py cards-setup claude --model haiku
-
-# any OpenAI-compatible endpoint: local vLLM or Ollama, OpenAI, OpenRouter, ...
-sessiondb.py cards-setup openai --base-url 'http://localhost:11434/v1' --model qwen3
-sessiondb.py cards-setup openai --base-url '${SPARK_BASE_URL_LAN}/v1' --model local-model \
-    --key-env SPARK_API_KEY --no-thinking
-
-sessiondb.py cards-setup off
-sessiondb.py config          # what is set up now
+```
+/session-db:cards                       status: model, auto on/off, cards made, sessions due
+/session-db:cards haiku                 headless `claude -p` on your own Claude Code login
+/session-db:cards claude sonnet         ... with another Claude model
+/session-db:cards local URL MODEL [KEY_ENV]   any OpenAI-compatible endpoint: local vLLM or
+                                        Ollama, OpenAI, OpenRouter, ... (`openai` is an alias)
+/session-db:cards model NAME            change the model, keep the provider
+/session-db:cards url URL               change the endpoint
+/session-db:cards key-env VAR           read the API key from an environment variable
+/session-db:cards key KEY               store the API key in config.json (kept at 0600)
+/session-db:cards thinking on|off       vLLM/Qwen thinking switch
+/session-db:cards on | off              automatic cards on/off
+/session-db:cards test                  one call to the model
+/session-db:cards now [SESSION]         make cards now: one session, or every due one
+/session-db:cards disable               no cards at all; existing cards are kept
 ```
 
-Each setup runs a one-call test. The config lives next to the database
-(`~/.claude/session-db/config.json`); `${VAR}` in `base_url` is expanded from the environment,
-and keys are only ever read from the environment variable you name.
+For example, a local Spark: `/session-db:cards local '${SPARK_BASE_URL_LAN}/v1' local-model
+SPARK_API_KEY`, then `thinking off`, `test`, `on`. `${VAR}` in a URL is expanded when the
+model is called. From a shell the same verbs work as `scripts/cards-ctl.sh <verb>`, and
+`sessiondb.py cards-setup ...` remains for scripted setup.
+
+The config lives next to the database (`~/.claude/session-db/config.json`).
 
 **When cards are made.** In the background, from the session hooks, for a session that has
 been quiet for 30 minutes and has at least 6 messages (first card) or 20 new ones (update). At

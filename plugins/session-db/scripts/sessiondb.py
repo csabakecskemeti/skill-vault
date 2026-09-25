@@ -573,6 +573,100 @@ def cmd_cards_setup(db, args):
             print(f"FAILED: {e}")
 
 
+CTL_USAGE = """usage: cards-ctl <verb>
+  status                         what makes cards, auto on/off, how many cards exist
+  on | off                       automatic cards on/off (manual `card --refresh` still works)
+  haiku | claude [MODEL]         use headless `claude -p` on your Claude Code login
+  local URL MODEL [KEY_ENV]      use an OpenAI-compatible endpoint (local or any provider)
+  openai URL MODEL [KEY_ENV]     same as local
+  model NAME                     change the model, keep the provider
+  url URL                        change the endpoint URL
+  key-env VAR                    read the API key from environment variable VAR
+  key KEY                        store the API key in config.json (file is 0600)
+  thinking on|off                vLLM/Qwen thinking switch for endpoint providers
+  test                           one call to the summarizer
+  now [SESSION]                  make/update cards now: SESSION, or every due session
+  disable                        no cards at all (existing cards are kept)"""
+
+
+def cmd_cards_ctl(db, args):
+    v = args.verb or ["status"]
+    verb, rest = v[0], v[1:]
+    raw = cards.read_raw(args.db)
+    summ = dict(raw.get("summarizer") or {})
+    say = print
+
+    def save_summ(msg):
+        raw["summarizer"] = summ
+        cards.write_raw(args.db, raw)
+        say(msg)
+
+    if verb == "status":
+        say(cards.config_status(args.db, cards.load_config(args.db)))
+        n = db.execute("SELECT COUNT(*) FROM cards").fetchone()[0]
+        total = db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+        cfg = cards.load_config(args.db)
+        due = len(cards.due_sessions(db, cfg["cards"])) if cfg else 0
+        say(f"cards: {n} of {total} sessions" + (f", {due} due now" if cfg else ""))
+    elif verb in ("on", "off"):
+        if verb == "on" and not summ:
+            sys.exit("No summarizer yet. Pick one first: `haiku`, `claude MODEL`, or `local URL MODEL`.")
+        raw.setdefault("cards", dict(cards.DEFAULT_CARDS))["auto"] = verb == "on"
+        summ["enabled"] = True
+        save_summ(f"auto cards {verb}")
+    elif verb in ("haiku", "claude"):
+        model = "haiku" if verb == "haiku" else (rest[0] if rest else "haiku")
+        summ = {"provider": "claude", "model": model}
+        save_summ(f"summarizer: claude -p --model {model} (your Claude Code login)")
+    elif verb in ("local", "openai"):
+        if len(rest) < 2:
+            sys.exit(f"usage: {verb} URL MODEL [KEY_ENV]")
+        old = summ
+        summ = {"provider": "openai", "base_url": rest[0], "model": rest[1]}
+        if len(rest) > 2:
+            summ["api_key_env"] = rest[2]
+        elif old.get("provider") == "openai":  # keep an existing key setting
+            for k in ("api_key", "api_key_env", "extra_body"):
+                if k in old:
+                    summ[k] = old[k]
+        save_summ(f"summarizer: {rest[1]} at {rest[0]}")
+    elif verb in ("model", "url", "key-env", "key"):
+        if not rest or not summ:
+            sys.exit(f"usage: {verb} VALUE (after choosing a provider)")
+        if verb in ("url", "key-env", "key") and summ.get("provider") != "openai":
+            sys.exit(f"`{verb}` applies to endpoint providers; the claude provider uses your login.")
+        field = {"model": "model", "url": "base_url", "key-env": "api_key_env", "key": "api_key"}[verb]
+        if verb == "key":
+            summ.pop("api_key_env", None)
+        if verb == "key-env":
+            summ.pop("api_key", None)
+        summ[field] = rest[0]
+        save_summ(f"{verb}: " + ("(stored)" if verb == "key" else rest[0]))
+    elif verb == "thinking":
+        if not rest or rest[0] not in ("on", "off"):
+            sys.exit("usage: thinking on|off")
+        summ.setdefault("extra_body", {})["chat_template_kwargs"] = {"enable_thinking": rest[0] == "on"}
+        save_summ(f"thinking {rest[0]}")
+    elif verb == "disable":
+        summ["enabled"] = False
+        save_summ("cards disabled (existing cards are kept and still shown)")
+    elif verb == "test":
+        cfg = cards.load_config(args.db)
+        if not cfg:
+            sys.exit("No summarizer configured.")
+        try:
+            out, model = cards.call_llm(cfg["summarizer"], "Output JSON only.", 'Return {"ok": true}')
+            cards.parse_card(out)
+            say(f"ok ({model})")
+        except Exception as e:  # report whatever went wrong with the endpoint
+            say(f"FAILED: {e}")
+    elif verb == "now":
+        cmd_cards(db, argparse.Namespace(db=args.db, auto=False, all=False, full=False,
+                                         session=rest[0] if rest else None, quiet=False))
+    else:
+        say(CTL_USAGE)
+
+
 def urllib_errors():
     import urllib.error
     return (urllib.error.URLError, TimeoutError, ConnectionError, OSError)
@@ -649,7 +743,7 @@ def now_iso():
 
 # ------------------------------------------------------------------------- main
 
-READ_COMMANDS = {"search", "sessions", "show", "resume", "stats", "card", "cards"}
+READ_COMMANDS = {"search", "sessions", "show", "resume", "stats", "card", "cards", "cards-ctl"}
 
 
 def main():
@@ -716,6 +810,9 @@ def main():
 
     sub.add_parser("config", help="show the summarizer configuration")
 
+    p = sub.add_parser("cards-ctl", help="control summary cards (status/on/off/haiku/local/...)")
+    p.add_argument("verb", nargs=argparse.REMAINDER)
+
     p = sub.add_parser("cards-setup", help="turn session cards on (claude | openai) or off")
     p.add_argument("provider", choices=["claude", "openai", "off"])
     p.add_argument("--model", help="claude: haiku/sonnet/...; openai: the served model name")
@@ -734,7 +831,7 @@ def main():
         {"index": cmd_index, "reindex": cmd_index, "search": cmd_search,
          "sessions": cmd_sessions, "show": cmd_show, "resume": cmd_resume, "stats": cmd_stats,
          "card": cmd_card, "cards": cmd_cards, "config": cmd_config,
-         "cards-setup": cmd_cards_setup}[args.cmd](db, args)
+         "cards-setup": cmd_cards_setup, "cards-ctl": cmd_cards_ctl}[args.cmd](db, args)
     finally:
         db.close()
 
