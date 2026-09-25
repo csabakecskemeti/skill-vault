@@ -48,6 +48,25 @@ def test_no_stray_period_after_dropped_leading_block():
     assert spoken(text) == "Each bump lets the update show up."
 
 
+def test_keeps_markdown_bullets():
+    text = "Two options:\n\n- **Reindex** on every search.\n- Keep the hook anyway."
+    assert spoken(text) == "Two options. Reindex on every search. Keep the hook anyway."
+
+
+def test_heading_gets_a_pause_before_the_next_one():
+    assert spoken("## 1. First\n\n```\ncode\n```\n\n## 2. Second") == "1. First. 2. Second"
+
+
+def test_long_paragraph_before_dropped_block_keeps_all_but_the_lead_in():
+    para = "It checks file sizes only, so a run takes well under a second on any realistic archive. So:"
+    out = spoken(para + "\n```\nx = 1\n```")
+    assert out.startswith("It checks file sizes only") and not out.endswith("So.")
+
+
+def test_lead_in_sentence_with_a_filename_is_dropped_whole():
+    assert spoken("Fixed it. The change was in client.py:\n```py\nx = 1\n```") == "Fixed it."
+
+
 def test_keeps_ordinary_prose():
     out = spoken("The retry loop was off by one. It now stops after three attempts.")
     assert out == "The retry loop was off by one. It now stops after three attempts."

@@ -110,7 +110,7 @@ def main():
         print(f"  voice    : {cfg['say_voice'] or 'system default'} (macOS, speed {cfg['speed']}x)")
     else:
         print(f"  voice    : {cfg['voice']} (lang {cfg['lang_code']}, speed {cfg['speed']}x)")
-    print(f"  max chars: {cfg['max_chars']}")
+    print(f"  max chars: {cfg['max_chars'] or 'no limit'}")
     if ping.get("ok"):
         print(f"  daemon   : running (pid {ping['pid']}), "
               f"model {'loaded' if ping['loaded'] else 'not loaded yet'}, "

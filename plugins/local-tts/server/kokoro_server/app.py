@@ -40,7 +40,7 @@ class SpeechRequest(BaseModel):
 
 class CleanRequest(BaseModel):
     text: str
-    max_chars: int = 1200
+    max_chars: int = 0          # 0 = no limit
 
 
 class SplitRequest(BaseModel):

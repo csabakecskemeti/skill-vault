@@ -224,7 +224,7 @@ shows the plugin version and flags a daemon started from another version as
 | `voice` | `af_heart` | 28 voices; `scripts/config.py voices` lists them |
 | `speed` | `1.0` | Playback rate |
 | `lang_code` | `a` | `a` American, `b` British — set automatically with the voice |
-| `max_chars` | `1200` | Longer replies truncate at a sentence boundary |
+| `max_chars` | `0` | `0` speaks the whole reply; otherwise truncate at a sentence boundary |
 | `backend` | `embedded` | `embedded`, `http` or `say` |
 | `say_voice` | `""` | macOS voice for the `say` backend; empty = system default |
 | `server_url` | `http://localhost:42821` | Used by the `http` backend |

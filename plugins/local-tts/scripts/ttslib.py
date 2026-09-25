@@ -54,7 +54,7 @@ DEFAULTS = {
     "speed": 1.0,
     "lang_code": "a",
     "say_voice": "",          # macOS voice for the "say" backend; "" = system default
-    "max_chars": 1200,
+    "max_chars": 0,           # 0 = speak the whole reply; /tts stop cuts it short
     "idle_unload_seconds": 0,
 }
 
@@ -100,7 +100,7 @@ _DROP_LINE = [
     re.compile(r"^\s*\|"),                                  # table row / delimiter
     re.compile(r"^\s*[+|][-+=| ]{6,}[+|]?\s*$"),            # ascii table border
     re.compile(r"^\s*[-=_*#~]{4,}\s*$"),                    # horizontal rule
-    re.compile(r"^\s*[+-]{1,3}\s"),                         # diff lines
+    re.compile(r"^\s*(?:\+{1,3}|-{2,3})\s"),                # diff lines ("- " is a bullet)
     re.compile(r"^\s*@@ .* @@"),                             # diff hunk header
     re.compile(r"^\s*(?:File \"|Traceback \(|\s+at .+\(.+:\d+\))"),  # tracebacks
     re.compile(r"^\s*(?:\$|>>>|#)\s+\S"),                   # shell / repl prompts
@@ -133,6 +133,11 @@ def _drop(line: str) -> bool:
     return any(p.search(line) for p in _DROP_LINE) or _is_codey(line)
 
 
+# The last sentence of a line when it ends in ":" -- "." only ends a sentence
+# before whitespace, so "client.py:" stays one word.
+_LEAD_IN_TAIL = re.compile(r"(?:^|(?<=[.!?])\s+)(?:(?![.!?]\s).)*:\s*$")
+
+
 def strip_unspeakable(text: str) -> str:
     """Drop whole lines that are code, tables, diffs or log noise."""
     marks, in_fence = [], False
@@ -144,6 +149,7 @@ def strip_unspeakable(text: str) -> str:
         marks.append((line, in_fence or _drop(line)))
 
     # "Here is the diff:" followed by a dropped block is a lead-in to nothing.
+    # Only the sentence ending in ":" is the lead-in; what precedes it stays.
     for i, (line, dropped) in enumerate(marks):
         if dropped or not line.rstrip().endswith(":"):
             continue
@@ -151,7 +157,8 @@ def strip_unspeakable(text: str) -> str:
             if not nxt.strip():
                 continue
             if nxt_dropped:
-                marks[i] = (line, True)
+                rest = _LEAD_IN_TAIL.sub("", line)
+                marks[i] = (rest, not rest.strip())
             break
 
     return "\n".join(line for line, dropped in marks if not dropped)
@@ -166,27 +173,29 @@ _STRIP = [
     (re.compile(r"\[([^\]]+)\]\([^)]+\)"), r"\1"),         # links -> label
     (re.compile(r"`([^`]+)`"), r"\1"),                     # inline code
     (re.compile(r"https?://\S+"), " link "),
-    (re.compile(r"^\s{0,3}#{1,6}\s+", re.M), ""),          # headers
-    (re.compile(r"^\s{0,3}>\s?", re.M), ""),               # blockquotes
-    (re.compile(r"^\s*[-*+]\s+", re.M), ""),               # bullets
-    (re.compile(r"^\s*\|.*\|\s*$", re.M), " "),            # table rows
+    (re.compile(r"^[ \t]{0,3}#{1,6}[ \t]+", re.M), ""),          # headers
+    (re.compile(r"^[ \t]{0,3}>[ \t]?", re.M), ""),               # blockquotes
+    (re.compile(r"^[ \t]*[-*+][ \t]+", re.M), ""),               # bullets
+    (re.compile(r"^[ \t]*\|.*\|[ \t]*$", re.M), " "),            # table rows
     (re.compile(r"\*{1,3}([^*]+)\*{1,3}"), r"\1"),         # bold/italic
     (re.compile(r"_{2}([^_]+)_{2}"), r"\1"),
     (re.compile(r"~~([^~]+)~~"), r"\1"),
     (re.compile(r"\[[ xX]\]"), " "),                       # checkboxes
     (re.compile(r"[→←↑↓•·|▶●■◆✓✗✅❌➜»]"), " "),
-    (re.compile(r"^\s*[-=_]{3,}\s*$", re.M), " "),         # rules
+    (re.compile(r"^[ \t]*[-=_]{3,}[ \t]*$", re.M), " "),         # rules
 ]
 
 _PATHY = re.compile(r"(?<![\w/])(?:~|\.{1,2})?/[\w.\-/]{4,}")
 
 
-def clean_for_tts(text: str, max_chars: int = 1200) -> str:
+def clean_for_tts(text: str, max_chars: int = 0) -> str:
     """Turn a markdown answer into something worth hearing out loud."""
     text = strip_unspeakable(text)
     for pattern, repl in _STRIP:
         text = pattern.sub(repl, text)
     text = _PATHY.sub(lambda m: m.group(0).rstrip("/").rsplit("/", 1)[-1], text)
+    # Headings and list items rarely end in punctuation; give each its pause.
+    text = re.sub(r"([^\s.!?:;,])[ \t]*\n", r"\1.\n", text)
     text = re.sub(r"\n{2,}", ". ", text)
     text = re.sub(r"\s+", " ", text)
     text = re.sub(r"[:;,]\s*\.", ".", text)
