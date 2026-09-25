@@ -1,30 +1,31 @@
 # local-tts
 
-A Claude Code plugin that reads Claude's replies out loud with
-[Kokoro](https://huggingface.co/hexgrad/Kokoro-82M). Everything runs on your
-machine — no API key, and no network call when it speaks.
+A Claude Code plugin that reads Claude's replies out loud — with
+[Kokoro](https://huggingface.co/hexgrad/Kokoro-82M), or with macOS's built-in
+`say` voices. Everything runs on your machine — no API key, and no network call
+when it speaks.
 
 ## How it works
 
-Two pieces, with a clear split of labour:
+Three stages, with a clear split of labour:
 
 ```
-   ┌─ this machine ────────────────────────────────┐   ┌─ container ──────────┐
-   │                                               │   │                      │
-   │  Stop hook ──► local daemon                   │   │  kokoro-tts-server   │
-   │  (per turn,    · dedupe the reply             │   │  · Kokoro + 28 voices│
-   │   detached,    · filter out code/tables       │   │  · POST /v1/audio/   │
-   │   ~0.3s)       · split into sentences  ───────┼──►│      speech          │
-   │                · play the audio       ◄───────┼───┤  · returns WAV bytes │
-   │                                               │   │                      │
-   └───────────────────────────────────────────────┘   └──────────────────────┘
-                     :42821
+ ┌─ this machine ──────────────────────────────────────────────┐
+ │                                                             │
+ │  PreToolUse ─┐   hook worker           daemon               │
+ │  Stop ───────┴─► · new text this turn ─► · split sentences  │
+ │  (detached,      · dedupe               · synth one ahead ──┼──► backend
+ │   ~0.3 s)        · filter code/tables   · play the audio ◄──┼─── WAV bytes
+ │                                                             │
+ └─────────────────────────────────────────────────────────────┘
+   backend = embedded (Kokoro in the daemon)
+           | http     (kokoro-tts-server container on :42821)
+           | say      (macOS `say`)
 ```
 
-**The container synthesizes. The daemon orchestrates and plays.** The daemon is
-not where the model lives — it dedupes the reply, filters it, splits it into
-sentences, asks a backend for audio, and plays what comes back. That is why
-swapping the backend changes nothing about how the plugin behaves.
+**The hooks decide what to say. The daemon splits and plays. The backend only
+synthesizes.** Because a backend just turns text into WAV bytes, swapping it
+changes nothing about what is spoken or how it is played.
 
 Playback can never move into the container: on macOS Docker runs inside a Linux
 VM with no CoreAudio access and no `/dev/snd`, so a container physically cannot
@@ -34,6 +35,8 @@ Three things make it usable turn after turn:
 
 **The hook never blocks.** It buffers the payload, hands it to a detached
 worker, and returns in ~0.3 s. A turn never waits on synthesis or playback.
+Text written before a tool call is spoken as that tool starts (`PreToolUse`),
+so a long, tool-heavy turn talks as it goes instead of all at the end.
 
 **Sentence streaming.** Kokoro emits nothing until it has synthesized a whole
 passage, so a long answer would mean a long silence. `split_chunks()` breaks
@@ -59,14 +62,15 @@ It now stops after **three** attempts.
 is spoken as: *"Fixed. It now stops after three attempts."*
 
 Filtering and splitting live in the plugin rather than the server, so they work
-identically on every backend — including `embedded`, which has no server to ask.
+identically on every backend — including `embedded` and `say`, which have no
+server to ask.
 
 ## Backends
 
 | Backend | Model runs | Setup | First audio | Notes |
 |---|---|---|---|---|
 | `embedded` (default) | in the daemon | `./setup.sh` (~1.1 GB venv) | **0.2–0.8 s** | Fastest. Needs Python deps locally |
-| `http` | in a container, or any OpenAI-compatible service | `/tts server up` (1.9 GB image) | **~2.6 s** | No Python deps here. Docker on macOS is CPU-only — no Metal — hence slower |
+| `http` | in a container, or any OpenAI-compatible service | `/local-tts:tts server up` (1.9 GB image) | **~2.6 s** | No Python deps here. Docker on macOS is CPU-only — no Metal — hence slower |
 | `say` | macOS's built-in `say` | nothing | **~0.5 s** | macOS only. Zero install; system voices instead of Kokoro's |
 
 ```
@@ -76,9 +80,9 @@ clean → split → [chunk 1] ─┐
 ```
 
 Chunks are requested one ahead of playback, so audio starts on chunk one on
-either backend.
+every backend.
 
-### What `/tts server up` does
+### What `/local-tts:tts server up` does
 
 It is idempotent and says which of four situations it found — already
 serving, container stopped, image present, or nothing local at all. The last is
@@ -97,7 +101,7 @@ it.
 build context ships inside the plugin at `server/` (32 KB), so an offline
 machine, a proxied network, or an unpublished architecture still gets a working
 server. Building is slower than pulling — it installs torch and bakes the model,
-a few minutes — but it needs no registry access at all. `/tts server build`
+a few minutes — but it needs no registry access at all. `/local-tts:tts server build`
 forces that path deliberately.
 
 The server lives at [`server/`](server/) — Dockerfile, compose file, FastAPI
@@ -124,9 +128,11 @@ a transient bind. Override with `KOKORO_TTS_PORT`.
 
 Or point at a local checkout with `/plugin marketplace add /path/to/this/repo`.
 
-Then pick a backend. `embedded` is the default, because it needs no Docker and
-is the faster of the two; switch to `http` when you would rather not keep a
-1.1 GB venv on this machine.
+Then pick a backend. `embedded` is the default: Kokoro's voices at the lowest
+latency, but it needs a 1.1 GB venv. On a Mac, `say` needs nothing at all; use
+`http` for Kokoro without Python deps on this machine.
+
+Plugin commands are namespaced: `/local-tts:tts` and `/local-tts:speak`.
 
 ### Container (no Python deps here)
 
@@ -134,24 +140,24 @@ Only Docker is required — the image is pulled if available, and built from the
 bundled `server/` source if not.
 
 ```sh
-/tts server up          # pull-or-start the container, wait for /health
-/tts backend http       # switch the plugin over (restarts the daemon)
-/tts status             # confirm reachable and API-compatible
+/local-tts:tts server up          # pull-or-start the container, wait for /health
+/local-tts:tts backend http       # switch the plugin over (restarts the daemon)
+/local-tts:tts status             # confirm reachable and API-compatible
 ```
 
 ### macOS `say` (nothing to install)
 
 Uses the system voices that ship with every Mac. `say` renders each chunk to a
-WAV, so filtering, chunking, `/tts stop` and playback behave exactly as on the
+WAV, so filtering, chunking, `/local-tts:tts stop` and playback behave exactly as on the
 other backends.
 
 ```sh
-/tts backend say
-/tts voice              # lists macOS voices, English first
-/tts voice Samantha     # "" or unset = the system default voice
+/local-tts:tts backend say
+/local-tts:tts voice              # lists macOS voices, English first
+/local-tts:tts voice Samantha     # "" or unset = the system default voice
 ```
 
-On this backend `/tts voice` sets `say_voice`, leaving the Kokoro `voice`
+On this backend `/local-tts:tts voice` sets `say_voice`, leaving the Kokoro `voice`
 untouched for when you switch back. Speed scales `say`'s rate from 175 wpm.
 More natural voices (Premium / Siri) can be downloaded in System Settings →
 Accessibility → Spoken Content.
@@ -163,7 +169,7 @@ Needs `espeak-ng` (Kokoro's phonemizer) and Python 3.9+.
 ```sh
 brew install espeak-ng          # or: sudo apt-get install espeak-ng
 ./setup.sh                      # venv + torch + model cache
-/tts backend embedded
+/local-tts:tts backend embedded
 ```
 
 `setup.sh` builds `~/.local/share/local-tts/venv` (~1.1 GB) outside the plugin
@@ -176,20 +182,37 @@ Speaking is on by default; it starts working after the next reply.
 
 | Command | Effect |
 |---|---|
-| `/tts` | Voice, speed, backend and daemon status |
-| `/tts off` / `/tts on` | Stop / resume speaking replies |
-| `/tts stop` | Cut off what is playing right now |
-| `/tts voice bm_george` | Switch voice (restarts the daemon) |
-| `/tts speed 1.15` | 0.5–2.0; ~1.15 is a good skim speed |
-| `/tts backend embedded\|http\|say` | Switch synthesis backend |
-| `/tts server up\|down\|status\|logs\|rm` | Manage the TTS container |
-| `/tts server pull` / `build` | Fetch the published image, or build the bundled source |
-| `/tts log` | Tail the daemon log |
-| `/speak <text>` | Say something one-off |
+| `/local-tts:tts` | Status: plugin version, voice, speed, backend, daemon |
+| `/local-tts:tts off` / `/local-tts:tts on` | Stop / resume speaking replies |
+| `/local-tts:tts stop` | Cut off what is playing right now |
+| `/local-tts:tts voice` | List voices for the current backend |
+| `/local-tts:tts voice bm_george` | Switch voice (restarts the daemon); on `say`, a macOS voice |
+| `/local-tts:tts speed 1.15` | 0.5–2.0; ~1.15 is a good skim speed |
+| `/local-tts:tts backend` | Show the current backend and its settings |
+| `/local-tts:tts backend embedded\|http\|say` | Switch synthesis backend |
+| `/local-tts:tts server up\|down\|restart\|status\|logs\|rm` | Manage the TTS container |
+| `/local-tts:tts server pull` / `build` | Fetch the published image, or build the bundled source |
+| `/local-tts:tts restart` | Restart the daemon (picks up new plugin code) |
+| `/local-tts:tts start` / `shutdown` | Start and preload / stop the daemon |
+| `/local-tts:tts log` | Tail the daemon log |
+| `/local-tts:speak <text>` | Say something one-off |
 
 `scripts/tts-ctl.sh` exposes the same surface from a shell and honours
 `LOCAL_TTS_HOME` if you want the runtime somewhere other than
 `~/.local/share/local-tts`.
+
+## Updating
+
+```
+/plugin marketplace update skill-vault     # or update it from /plugin
+/reload-plugins                            # or restart Claude Code
+/local-tts:tts restart                     # the daemon keeps running old code
+```
+
+A running daemon is never touched by a plugin update. `/local-tts:tts status`
+shows the plugin version and flags a daemon started from another version as
+`STALE`, with the restart that fixes it. New hooks only load on
+`/reload-plugins` or a restart of Claude Code.
 
 ## Config
 
@@ -197,7 +220,7 @@ Speaking is on by default; it starts working after the next reply.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `enabled` | `true` | Whether the Stop hook speaks |
+| `enabled` | `true` | Whether the hooks speak |
 | `voice` | `af_heart` | 28 voices; `scripts/config.py voices` lists them |
 | `speed` | `1.0` | Playback rate |
 | `lang_code` | `a` | `a` American, `b` British — set automatically with the voice |
@@ -212,15 +235,20 @@ Speaking is on by default; it starts working after the next reply.
 - Every piece of text Claude writes in a turn is spoken once, in order. Text
   written before a tool call is spoken as the tool starts (`PreToolUse`); the
   rest plays at `Stop`. Repeated hooks for the same text are deduped.
-- The final reply is taken from the `Stop` payload's `last_assistant_message`,
-  not the transcript. When `Stop` fires the last message is often not flushed
-  yet, so reading the transcript spoke the *previous* reply, one turn behind.
+- Hooks fire before the transcript catches up, so reading it directly spoke
+  the *previous* piece — one step behind. The final reply is therefore taken
+  from the `Stop` payload's `last_assistant_message`, and on `PreToolUse` the
+  worker waits (up to 2 s) until the tool call itself is in the transcript.
+- Claude Code occasionally leaves an intermediate text block out of the
+  transcript entirely; such text cannot be spoken. The final reply is always
+  spoken, since it comes from the payload.
+- `SessionEnd` stops whatever is still playing.
 - The daemon **refuses to start** when it cannot synthesize — missing venv, or
   an unreachable/incompatible server. Accepting text and failing into an unread
-  log is a worse failure than never starting, so `/tts status` names the cause.
-- The daemon exits after three idle hours on either backend, and restarts on the
-  next reply. On `embedded` that hands back the model's ~1 GB; on `http` there
-  was never a model here to hand back.
+  log is a worse failure than never starting, so `/local-tts:tts status` names the cause.
+- The daemon exits after three idle hours on any backend, and restarts on the
+  next reply. On `embedded` that hands back the model's ~1 GB; on `http` and
+  `say` there was never a model here to hand back.
 - Playback uses `afplay`, falling back to `paplay`/`aplay`/`ffplay`.
 - The container bakes in the model **and all 28 voice tensors**, and runs with
   `HF_HUB_OFFLINE=1`. Without the voices, a first request for a new voice
