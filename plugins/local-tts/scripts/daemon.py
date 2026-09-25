@@ -181,6 +181,7 @@ def handle(conn, speaker, cfg):
         cmd = req.get("cmd", "speak")
         if cmd == "ping":
             resp = {"ok": True, "loaded": speaker.warmed,
+                    "version": ttslib.plugin_version(),
                     "queued": speaker.jobs.qsize(), "pid": os.getpid(),
                     "backend": speaker.backend.describe()}
         elif cmd == "stop":

@@ -33,6 +33,15 @@ STATE = HOME / "state.json"
 
 SAMPLE_RATE = 24000
 
+
+def plugin_version() -> str:
+    """Version from this copy's plugin.json -- what the running code is."""
+    manifest = Path(__file__).resolve().parents[1] / ".claude-plugin" / "plugin.json"
+    try:
+        return json.loads(manifest.read_text(encoding="utf-8")).get("version", "unknown")
+    except (OSError, ValueError):
+        return "unknown"
+
 DEFAULTS = {
     "enabled": True,
     # "embedded" runs Kokoro in the daemon (needs setup.sh); "http" calls a
